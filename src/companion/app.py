@@ -76,6 +76,7 @@ class Api:
             "mics": input_device_names(),
             "llm_models": {
                 "anthropic": ["claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-5-5"],
+                "claude_code": ["sonnet", "haiku", "opus"],
                 "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini"],
                 "openai_compatible": [],
                 "scripted": [],

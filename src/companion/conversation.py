@@ -303,6 +303,8 @@ class Companion:
 
     def reset_conversation(self) -> None:
         self.conversation.reset()
+        if hasattr(self.llm, "new_session"):
+            self.llm.new_session()  # Claude Code keeps its own memory per session
         self.emit("transcript_reset", {})
 
     # --- the turn -------------------------------------------------------------------------

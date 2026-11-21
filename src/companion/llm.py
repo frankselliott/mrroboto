@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Protocol
 
 from companion import behaviour
@@ -125,6 +127,103 @@ class OpenAILLM:
                 yield chunk.choices[0].delta.content
 
 
+class ClaudeCodeLLM:
+    """Claude through the Claude Code CLI's headless mode — uses the signed-in Pro/Max account.
+
+    Each turn runs ``claude -p`` with the companion's system prompt, streaming text deltas
+    back. Conversation memory is Claude Code's own session: the first turn creates it with
+    ``--session-id`` and later turns ``--resume`` it, so follow-ups work without re-sending
+    history. Slower to first word than the API (the CLI starts a fresh process each time) and
+    subject to the subscription's rate limits, but costs no API tokens.
+    """
+
+    def __init__(self, model: str = "sonnet", binary: str | None = None):
+        self.binary = binary or find_claude_cli()
+        if not self.binary:
+            raise RuntimeError("Claude Code CLI not found — install it or sign in to the Claude app")
+        self.model = model or "sonnet"
+        self.name = f"Claude Code ({self.model}, your subscription)"
+        self._session: str | None = None
+
+    def new_session(self) -> None:
+        self._session = None
+
+    def stream(self, system: str, messages: list[Message]) -> Iterator[str]:
+        import json  # noqa: PLC0415
+        import subprocess  # noqa: PLC0415
+        import uuid  # noqa: PLC0415
+
+        prompt = messages[-1].content if messages else ""
+        cmd = [
+            self.binary, "-p", prompt,
+            "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+            "--model", self.model, "--system-prompt", system,
+            "--disallowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,Agent,Task,NotebookEdit,TodoWrite",
+            "--max-turns", "1",
+            "--strict-mcp-config",  # skip the user's MCP servers: faster start, no side effects
+        ]
+        if self._session:
+            cmd += ["--resume", self._session]
+        else:
+            self._session = str(uuid.uuid4())
+            cmd += ["--session-id", self._session]
+        env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
+        env["CLAUDE_CODE_ENTRYPOINT"] = "ruko-companion"
+        proc = subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+            cwd=str(Path.home()),
+        )
+        streamed = False
+        final_text = ""
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                t = ev.get("type")
+                if t == "stream_event":
+                    inner = ev.get("event", {})
+                    if inner.get("type") == "content_block_delta":
+                        delta = inner.get("delta", {})
+                        if delta.get("type") == "text_delta" and delta.get("text"):
+                            streamed = True
+                            yield delta["text"]
+                elif t == "result":
+                    final_text = ev.get("result") or ""
+                    if ev.get("is_error"):
+                        raise RuntimeError(final_text or "Claude Code returned an error")
+            proc.wait(timeout=10)
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+        if not streamed and final_text:
+            yield final_text
+        if proc.returncode not in (0, None) and not streamed and not final_text:
+            err = (proc.stderr.read() if proc.stderr else "")[-400:]
+            raise RuntimeError(f"Claude Code failed ({proc.returncode}): {err.strip() or 'not logged in?'}")
+
+
+def find_claude_cli() -> str | None:
+    """The `claude` binary: PATH, the usual install spots, or the one bundled in Claude.app."""
+    import glob  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    for c in (shutil.which("claude"), Path.home() / ".local/bin/claude", Path.home() / ".claude/local/claude"):
+        if c and Path(c).exists():
+            return str(c)
+    bundled = sorted(
+        glob.glob(
+            str(Path.home() / "Library/Application Support/Claude/claude-code/*/*/claude.app/Contents/MacOS/claude")
+        )
+    )
+    return bundled[-1] if bundled else None
+
+
 class ScriptedLLM:
     """No API at all: canned replies so the whole pipeline can be exercised offline."""
 
@@ -171,6 +270,8 @@ def make_llm(settings: Settings, secrets: dict[str, str]) -> LLM:
         if not key:
             raise RuntimeError("OpenAI selected but OPENAI_API_KEY is not set")
         return OpenAILLM(key, settings.llm_model or "gpt-4o-mini", None, settings.max_reply_tokens)
+    if p == "claude_code":
+        return ClaudeCodeLLM(settings.llm_model or "sonnet")
     if p == "openai_compatible":
         if not settings.llm_base_url:
             raise RuntimeError("openai_compatible provider needs llm_base_url (e.g. http://localhost:11434/v1)")
