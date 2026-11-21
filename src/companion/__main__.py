@@ -20,9 +20,11 @@ def _setup_logging(verbose: bool) -> None:
     fh = RotatingFileHandler(config.LOG_DIR / "companion.log", maxBytes=2_000_000, backupCount=3)
     fh.setFormatter(fmt)
     root.addHandler(fh)
-    sh = logging.StreamHandler(sys.stderr)
-    sh.setFormatter(fmt)
-    root.addHandler(sh)
+    if sys.stderr.isatty():
+        # Under the launcher bundle stderr already lands in a log file; don't double-write.
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
     for noisy in ("httpx", "httpcore", "urllib3", "anthropic", "openai"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 

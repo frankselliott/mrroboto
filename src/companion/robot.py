@@ -17,6 +17,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -109,7 +110,9 @@ class CarleProcesses:
         env = dict(os.environ)
         env.pop("VIRTUAL_ENV", None)  # our venv is not Carle's; let uv pick carle/.venv
         env["PATH"] = f"{Path(find_uv()).parent}:{env.get('PATH', '')}"
-        proc = subprocess.Popen(cmd, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env)
+        # The watchdog wrapper kills the child if this process disappears (no orphans).
+        wrapped = [sys.executable, "-m", "companion._child", "--", *cmd]
+        proc = subprocess.Popen(wrapped, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, env=env)
         log.close()
         _log.info("started carle %s (pid %d): %s", name, proc.pid, " ".join(cmd[-4:]))
         return proc
@@ -129,7 +132,28 @@ class CarleProcesses:
             "carle-daemon", self._carle("daemon", "start", self.address, "--foreground")
         )
 
+    def _reap_stale_speak_server(self) -> None:
+        """Terminate a leftover `carle speak-server` holding our port from an earlier run."""
+        try:
+            out = subprocess.run(
+                ["lsof", "-t", "-i", f"tcp:{self.speak_port}", "-sTCP:LISTEN"],
+                capture_output=True, text=True, timeout=5,
+            ).stdout.split()
+        except (OSError, subprocess.TimeoutExpired):
+            return
+        for pid in out:
+            try:
+                cmdline = subprocess.run(
+                    ["ps", "-o", "command=", "-p", pid], capture_output=True, text=True, timeout=5
+                ).stdout
+                if "carle" in cmdline and "speak-server" in cmdline:
+                    _log.warning("terminating stale speak server pid %s", pid)
+                    os.kill(int(pid), 15)
+            except (OSError, ValueError, subprocess.TimeoutExpired):
+                continue
+
     def _launch_speak(self) -> None:
+        self._reap_stale_speak_server()
         self._speak = self._spawn(
             "carle-speak-server",
             self._carle(

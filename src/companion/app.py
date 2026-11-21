@@ -123,9 +123,18 @@ class Api:
         return {"settings": new.to_dict(), "status": self.c.status()}
 
     def set_secret(self, name: str, value: str) -> dict:
-        config.set_secret(name, (value or "").strip())
+        value = (value or "").strip()
+        config.set_secret(name, value)
         secrets = config.load_secrets()
-        self.c.apply_settings(self.c.settings, secrets)
+        settings = self.c.settings
+        # Saving a key while still on the offline demo almost certainly means "use this AI".
+        if value and settings.llm_provider == "scripted":
+            if name == "ANTHROPIC_API_KEY":
+                settings = Settings.from_dict({**settings.to_dict(), "llm_provider": "anthropic", "llm_model": "claude-sonnet-5-5"})
+            elif name == "OPENAI_API_KEY":
+                settings = Settings.from_dict({**settings.to_dict(), "llm_provider": "openai", "llm_model": "gpt-4o-mini"})
+            config.save_settings(settings)
+        self.c.apply_settings(settings, secrets)
         return config.secret_status(secrets)
 
     def scan(self) -> dict:
