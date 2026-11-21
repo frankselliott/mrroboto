@@ -89,22 +89,42 @@ class Companion:
         self.processes = CarleProcesses(s.robot_address, s.speak_port, s.speaker_device)
         self.processes.start()
         self._build_providers()
-        try:
-            self.mic = Microphone(s.mic_device, on_level=lambda lvl: self.emit("level", {"rms": lvl}))
-            self.mic.open()
-        except Exception as exc:  # noqa: BLE001 - report, keep running without a mic
-            self.mic = None
-            self.provider_errors["mic"] = str(exc)
-            self.emit("error", {"message": f"Microphone: {exc}"})
-        if self.mic:
-            self.gate = VoiceGate(self.mic, self._on_hands_free_utterance, threshold=s.vad_threshold)
-            if s.hands_free:
-                self.gate.enable()
+        threading.Thread(target=self._open_microphone, name="mic-open", daemon=True).start()
         self._stop_poll.clear()
         self._poller = threading.Thread(target=self._poll_status, name="status-poller", daemon=True)
         self._poller.start()
         threading.Thread(target=self._warm_up, name="warm-up", daemon=True).start()
         self._set_state(State.LISTENING if s.hands_free else State.IDLE)
+
+    def _open_microphone(self) -> None:
+        """Ask macOS for microphone access (shows the prompt if undecided), then open the mic."""
+        from companion.permissions import request_microphone  # noqa: PLC0415
+
+        s = self.settings
+        status = request_microphone(timeout=180)
+        if status != "authorized":
+            self.provider_errors["mic"] = f"microphone permission {status}"
+            self.emit("error", {
+                "message": f"Microphone permission is {status}. Allow RukoCompanion under System "
+                "Settings → Privacy & Security → Microphone, then press Stop and Start."
+            })
+            if status != "not-determined":
+                return
+        if not self.running:
+            return
+        try:
+            self.mic = Microphone(s.mic_device, on_level=lambda lvl: self.emit("level", {"rms": lvl}))
+            self.mic.open()
+            self.provider_errors.pop("mic", None)
+        except Exception as exc:  # noqa: BLE001 - report, keep running without a mic
+            self.mic = None
+            self.provider_errors["mic"] = str(exc)
+            self.emit("error", {"message": f"Microphone: {exc}"})
+            return
+        self.gate = VoiceGate(self.mic, self._on_hands_free_utterance, threshold=s.vad_threshold)
+        if s.hands_free:
+            self.gate.enable()
+        self.emit("status", self.status())
 
     def stop(self) -> None:
         if not self.running:
@@ -323,6 +343,15 @@ class Companion:
     def _handle_utterance(self, audio: np.ndarray) -> None:
         if self.stt is None:
             self.emit("error", {"message": "No speech-to-text provider is configured"})
+            return
+        if len(audio) and not np.any(audio):
+            # macOS delivers pure digital silence when the app has no microphone permission.
+            self.provider_errors["mic"] = "no microphone permission"
+            self.emit("error", {
+                "message": "The microphone is delivering silence: allow RukoCompanion under "
+                "System Settings → Privacy & Security → Microphone, then press Stop and Start."
+            })
+            self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
             return
         self._set_state(State.THINKING)
         t0 = time.monotonic()

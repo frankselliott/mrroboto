@@ -5,7 +5,17 @@
 	<key>files</key>
 	<dict/>
 	<key>files2</key>
-	<dict/>
+	<dict>
+		<key>MacOS/launch.sh</key>
+		<dict>
+			<key>cdhash</key>
+			<data>
+			7WBBqU9fFxLwcSqSNugpDnUlobw=
+			</data>
+			<key>requirement</key>
+			<string>cdhash H"ed6041a94f5f1712f0712a9236e8290e7525a1bc"</string>
+		</dict>
+	</dict>
 	<key>rules</key>
 	<dict>
 		<key>^Resources/</key>

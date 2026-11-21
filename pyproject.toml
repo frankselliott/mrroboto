@@ -13,6 +13,7 @@ dependencies = [
     "pywebview>=5.0",
     "pyobjc-framework-Cocoa>=10.0",
     "pyyaml>=6.0",
+    "pyobjc-framework-avfoundation>=10.0",
 ]
 
 [project.optional-dependencies]
