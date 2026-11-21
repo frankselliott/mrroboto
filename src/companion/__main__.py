@@ -78,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         from companion.conversation import Companion
 
         c = Companion(settings, secrets, _print_event)
+        _stop_on_signal(c)
         c.start()
         try:
             _wait_for(lambda: c.last_status.get("robot", {}).get("connected"), 20, "robot link")
@@ -133,6 +134,19 @@ def main(argv: list[str] | None = None) -> int:
 
     run_window(settings, secrets)
     return 0
+
+
+def _stop_on_signal(companion) -> None:
+    """SIGTERM/SIGINT: stop the Carle children and bring the robot home before exiting."""
+    import signal
+
+    def handler(signum, frame):  # noqa: ARG001
+        logging.getLogger(__name__).info("signal %s: shutting down", signum)
+        companion.stop()
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, handler)
+    signal.signal(signal.SIGINT, handler)
 
 
 def _wait_for(cond, timeout: float, what: str) -> None:

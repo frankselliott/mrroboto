@@ -32,13 +32,18 @@ class TTS(Protocol):
     def warm_up(self) -> None: ...
 
 
+#: Target peak for synthesized speech (just under full scale) so quiet voices are not lost on
+#: a small robot speaker.
+TARGET_PEAK = 0.9
+
+
 def _to_int16(samples: np.ndarray) -> np.ndarray:
     samples = np.asarray(samples, dtype=np.float32)
     if samples.ndim > 1:
         samples = samples[:, 0]
     peak = float(np.max(np.abs(samples))) if len(samples) else 0.0
-    if peak > 1.0:
-        samples = samples / peak
+    if peak > 1e-4:
+        samples = samples * (TARGET_PEAK / peak)
     return (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
 
 

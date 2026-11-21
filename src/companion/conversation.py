@@ -463,10 +463,17 @@ class Companion:
                 (first_audio_at - t_start) if first_audio_at else -1,
                 time.monotonic() - t_start,
             )
+            interrupted = turn.cancel.is_set() and self.running
+            said = " ".join(turn.spoken)
+            if turn.spoken and interrupted:
+                said += " …(interrupted)"
             if turn.raw.strip():
-                self.conversation.add_assistant(turn.raw.strip())
+                # What the model sees later: its full reply, marked if it was cut off.
+                self.conversation.add_assistant(
+                    turn.raw.strip() + ("\n(You were interrupted before finishing.)" if interrupted else "")
+                )
             if turn.spoken:
-                self.emit("transcript", {"role": "assistant", "text": " ".join(turn.spoken), "partial": False})
+                self.emit("transcript", {"role": "assistant", "text": said, "partial": False})
             if self._turn is turn:
                 time.sleep(UNMUTE_DELAY)
                 if self.mic:
