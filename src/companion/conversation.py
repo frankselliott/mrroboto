@@ -123,6 +123,8 @@ class Companion:
             pass
         if self.processes:
             self.processes.stop()
+        if hasattr(self.llm, "close"):
+            self.llm.close()
         self._set_state(State.IDLE, announce_only=True)
 
     def apply_settings(self, settings: Settings, secrets: dict[str, str]) -> None:
@@ -157,6 +159,8 @@ class Companion:
 
     def _build_providers(self) -> None:
         self.provider_errors = {k: v for k, v in self.provider_errors.items() if k == "mic"}
+        if hasattr(self.llm, "close"):
+            self.llm.close()  # a persistent Claude Code process, if one is running
         for name, factory in (("stt", make_stt), ("tts", make_tts), ("llm", make_llm)):
             try:
                 setattr(self, name, factory(self.settings, self.secrets))

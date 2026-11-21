@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import re
+import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -128,14 +130,17 @@ class OpenAILLM:
 
 
 class ClaudeCodeLLM:
-    """Claude through the Claude Code CLI's headless mode — uses the signed-in Pro/Max account.
+    """Claude through the Claude Code CLI — uses the signed-in Pro/Max account, no API key.
 
-    Each turn runs ``claude -p`` with the companion's system prompt, streaming text deltas
-    back. Conversation memory is Claude Code's own session: the first turn creates it with
-    ``--session-id`` and later turns ``--resume`` it, so follow-ups work without re-sending
-    history. Slower to first word than the API (the CLI starts a fresh process each time) and
-    subject to the subscription's rate limits, but costs no API tokens.
+    One ``claude -p`` process is kept alive and fed user messages over stdin
+    (``--input-format stream-json``), so after the first reply the next word arrives in about
+    a second rather than the five-plus seconds a fresh process costs. Memory is Claude Code's
+    own session: if the process has to be restarted (an interruption kills it, since it would
+    otherwise keep generating) the same session is ``--resume``d. Tools and MCP servers are
+    disabled; the companion's system prompt replaces Claude Code's.
     """
+
+    _NO_TOOLS = "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,Agent,Task,NotebookEdit,TodoWrite"
 
     def __init__(self, model: str = "sonnet", binary: str | None = None):
         self.binary = binary or find_claude_cli()
@@ -144,23 +149,23 @@ class ClaudeCodeLLM:
         self.model = model or "sonnet"
         self.name = f"Claude Code ({self.model}, your subscription)"
         self._session: str | None = None
+        self._proc = None
+        self._system: str | None = None
+        self._events: queue.Queue = queue.Queue()
+        self._lock = threading.Lock()
 
-    def new_session(self) -> None:
-        self._session = None
+    # --- process management ----------------------------------------------------------------
 
-    def stream(self, system: str, messages: list[Message]) -> Iterator[str]:
-        import json  # noqa: PLC0415
+    def _start(self, system: str) -> None:
         import subprocess  # noqa: PLC0415
         import uuid  # noqa: PLC0415
 
-        prompt = messages[-1].content if messages else ""
+        self.close()
         cmd = [
-            self.binary, "-p", prompt,
-            "--output-format", "stream-json", "--verbose", "--include-partial-messages",
-            "--model", self.model, "--system-prompt", system,
-            "--disallowedTools", "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,Agent,Task,NotebookEdit,TodoWrite",
-            "--max-turns", "1",
-            "--strict-mcp-config",  # skip the user's MCP servers: faster start, no side effects
+            self.binary, "-p", "--input-format", "stream-json", "--output-format", "stream-json",
+            "--verbose", "--include-partial-messages", "--model", self.model,
+            "--system-prompt", system, "--disallowedTools", self._NO_TOOLS,
+            "--max-turns", "1", "--strict-mcp-config",
         ]
         if self._session:
             cmd += ["--resume", self._session]
@@ -169,43 +174,103 @@ class ClaudeCodeLLM:
             cmd += ["--session-id", self._session]
         env = {k: v for k, v in os.environ.items() if not k.startswith("CLAUDE")}
         env["CLAUDE_CODE_ENTRYPOINT"] = "ruko-companion"
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-            cwd=str(Path.home()),
+        self._proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, env=env, cwd=str(Path.home()),
         )
-        streamed = False
-        final_text = ""
-        try:
-            assert proc.stdout is not None
-            for line in proc.stdout:
-                line = line.strip()
-                if not line.startswith("{"):
-                    continue
+        self._system = system
+        self._events = queue.Queue()
+        threading.Thread(target=self._reader, args=(self._proc, self._events), daemon=True).start()
+        _log.info("claude code process started (pid %d, session %s)", self._proc.pid, self._session[:8])
+
+    @staticmethod
+    def _reader(proc, events: queue.Queue) -> None:
+        import json  # noqa: PLC0415
+
+        for line in proc.stdout:
+            if line.startswith("{"):
                 try:
-                    ev = json.loads(line)
+                    events.put(json.loads(line))
                 except json.JSONDecodeError:
                     continue
-                t = ev.get("type")
-                if t == "stream_event":
-                    inner = ev.get("event", {})
-                    if inner.get("type") == "content_block_delta":
-                        delta = inner.get("delta", {})
-                        if delta.get("type") == "text_delta" and delta.get("text"):
-                            streamed = True
-                            yield delta["text"]
-                elif t == "result":
-                    final_text = ev.get("result") or ""
-                    if ev.get("is_error"):
-                        raise RuntimeError(final_text or "Claude Code returned an error")
-            proc.wait(timeout=10)
-        finally:
-            if proc.poll() is None:
-                proc.terminate()
-        if not streamed and final_text:
-            yield final_text
-        if proc.returncode not in (0, None) and not streamed and not final_text:
-            err = (proc.stderr.read() if proc.stderr else "")[-400:]
-            raise RuntimeError(f"Claude Code failed ({proc.returncode}): {err.strip() or 'not logged in?'}")
+        events.put(None)  # EOF: the process is gone
+
+    def close(self) -> None:
+        proc, self._proc = self._proc, None
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except Exception:  # noqa: BLE001
+                proc.kill()
+
+    def new_session(self) -> None:
+        self.close()
+        self._session = None
+
+    # --- the provider interface -------------------------------------------------------------
+
+    def stream(self, system: str, messages: list[Message]) -> Iterator[str]:
+        import json  # noqa: PLC0415
+
+        with self._lock:
+            if self._proc is None or self._proc.poll() is not None or system != self._system:
+                self._start(system)
+            while not self._events.empty():  # stale events from an earlier turn
+                self._events.get_nowait()
+            prompt = messages[-1].content if messages else ""
+            try:
+                self._proc.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": prompt}}) + "\n")
+                self._proc.stdin.flush()
+            except (OSError, ValueError) as exc:
+                self.close()
+                raise RuntimeError(f"Claude Code process unavailable: {exc}") from exc
+            try:
+                yield from self._consume()
+            except GeneratorExit:
+                # The caller stopped early (an interruption). The process would keep generating
+                # into the void, so drop it; the session is resumed on the next turn.
+                self.close()
+                raise
+
+    def _consume(self) -> Iterator[str]:
+        """Yield the text of the reply to the message just written.
+
+        Events from the previous reply can still be arriving (its ``result`` bookkeeping lands
+        after its ``message_stop``), so nothing counts until this reply's ``message_start``.
+        """
+        started = False
+        streamed = False
+        while True:
+            try:
+                ev = self._events.get(timeout=120)
+            except queue.Empty as exc:
+                self.close()
+                raise RuntimeError("Claude Code did not answer within 120 s") from exc
+            if ev is None:
+                self.close()
+                raise RuntimeError("Claude Code exited — are you signed in? (run: claude auth login)")
+            t = ev.get("type")
+            if t == "stream_event":
+                inner = ev.get("event", {})
+                kind = inner.get("type")
+                if kind == "message_start":
+                    started = True
+                elif kind == "content_block_delta" and started:
+                    delta = inner.get("delta", {})
+                    if delta.get("type") == "text_delta" and delta.get("text"):
+                        streamed = True
+                        yield delta["text"]
+                elif kind == "message_stop" and started:
+                    return  # the text is complete; the result bookkeeping arrives later
+            elif t == "result":
+                if ev.get("is_error"):
+                    raise RuntimeError(ev.get("result") or "Claude Code returned an error")
+                if started:
+                    if not streamed and ev.get("result"):
+                        yield ev["result"]
+                    return
+                # else: the previous reply's result — ignore it
 
 
 def find_claude_cli() -> str | None:
