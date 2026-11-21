@@ -237,9 +237,15 @@ class Companion:
         return info
 
     def _poll_status(self) -> None:
+        from companion.speaker import SpeakerKeeper  # noqa: PLC0415
+
+        keeper = SpeakerKeeper(self.settings.speaker_device)
         was_connected: bool | None = None
         while not self._stop_poll.wait(2.0):
             info = self.status()
+            # If the robot is reachable over BLE but its speaker dropped, ask macOS to
+            # reconnect it (rate-limited inside the keeper).
+            info["speaker_bt"] = keeper.ensure() if info["robot"]["connected"] else keeper.ensure() if info["speaker"] is False else None
             self.emit("status", info)
             connected = info["robot"]["connected"]
             if was_connected is not None and connected != was_connected:
@@ -479,6 +485,7 @@ class Companion:
                 item = pcm_q.get()
 
         outcome = "no-audio"
+        unvoiced_text = ""
         try:
             # Wait for the first sentence before opening the HTTP stream so a cancelled or
             # empty reply never opens a playback.
@@ -488,6 +495,14 @@ class Companion:
                 outcome = result.get("outcome", result.get("error", "unknown"))
                 if not result.get("ok"):
                     self.emit("error", {"message": f"Speaker: {result.get('error')}"})
+                    if not turn.spoken:
+                        # Nothing was voiced: still show what the robot would have said.
+                        from companion.dialogue import strip_tags  # noqa: PLC0415
+
+                        time.sleep(0.5)  # let the model finish so the text is complete
+                        text, _ = strip_tags(turn.raw)
+                        if text:
+                            unvoiced_text = text
         except Exception as exc:  # noqa: BLE001
             _log.exception("speak error")
             self.emit("error", {"message": f"Speaker: {exc}"})
@@ -509,6 +524,8 @@ class Companion:
                 )
             if turn.spoken:
                 self.emit("transcript", {"role": "assistant", "text": said, "partial": False})
+            elif unvoiced_text:
+                self.emit("transcript", {"role": "assistant", "text": unvoiced_text + " (robot speaker unavailable)", "partial": False})
             if self._turn is turn:
                 time.sleep(UNMUTE_DELAY)
                 if self.mic:
@@ -530,6 +547,8 @@ class Companion:
     def _apply_face(self, code: int, force: bool = False) -> None:
         if code == self._face and not force:
             return
+        if not self.last_status.get("robot", {}).get("connected"):
+            return  # don't pile faces into the queue while the link is down
         try:
             self.daemon.enqueue([behaviour.face_item(code)])
             self._face = code

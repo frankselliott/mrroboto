@@ -15,6 +15,7 @@ dependencies = [
     "pyyaml>=6.0",
     "pyobjc-framework-avfoundation>=10.0",
     "pyobjc-framework-corebluetooth>=10.0",
+    "pyobjc-framework-iobluetooth>=10.0",
 ]
 
 [project.optional-dependencies]

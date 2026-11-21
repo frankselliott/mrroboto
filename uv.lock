@@ -681,6 +681,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pyobjc-framework-iobluetooth"
+version = "13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5e/3f/271a6fcc9808f1ef571d7125b28868bc9165dbff9478fec05f7283b977d2/pyobjc_framework_iobluetooth-13.0.tar.gz", hash = "sha256:98b0a1da2bb77411aca5a1c42724a3b8a025419a416fe953a9212e241589c879", size = 174423, upload-time = "2026-10-30T10:46:47.054Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/c9/8b323f918f997cf9a3b062d085c64406bfbf00e7dc223149811c17ce2f8c/pyobjc_framework_iobluetooth-13.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:0af41e2fa1873444228d0ca31237f460a5a54cb455746933104a2d45c13b52f2", size = 40615, upload-time = "2026-10-30T10:39:29.259Z" },
+]
+
+[[package]]
 name = "pyobjc-framework-quartz"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -849,6 +862,7 @@ dependencies = [
     { name = "pyobjc-framework-avfoundation" },
     { name = "pyobjc-framework-cocoa" },
     { name = "pyobjc-framework-corebluetooth" },
+    { name = "pyobjc-framework-iobluetooth" },
     { name = "pywebview" },
     { name = "pyyaml" },
     { name = "sounddevice" },
@@ -880,6 +894,7 @@ requires-dist = [
     { name = "pyobjc-framework-avfoundation", specifier = ">=10.0" },
     { name = "pyobjc-framework-cocoa", specifier = ">=10.0" },
     { name = "pyobjc-framework-corebluetooth", specifier = ">=10.0" },
+    { name = "pyobjc-framework-iobluetooth", specifier = ">=10.0" },
     { name = "pywebview", specifier = ">=5.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sounddevice", specifier = ">=0.5" },
