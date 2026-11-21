@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>RukoCompanion</string>
+  <key>CFBundleDisplayName</key><string>Ruko Companion</string>
+  <key>CFBundleIdentifier</key><string>com.frankselliott.rukocompanion</string>
+  <key>CFBundleExecutable</key><string>RukoCompanion</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleVersion</key><string>0.1.0</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>LSMinimumSystemVersion</key><string>12.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Ruko Companion talks to the Ruko 1088 robot over Bluetooth Low Energy to move its arms and show expressions.</string>
+  <key>NSBluetoothPeripheralUsageDescription</key>
+  <string>Ruko Companion talks to the Ruko 1088 robot over Bluetooth Low Energy.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Ruko Companion listens through the microphone so you can talk to the robot.</string>
+</dict>
+</plist>

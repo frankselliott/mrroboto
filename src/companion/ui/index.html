@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ruko Companion</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --panel: #ffffff; --text: #1b1f27; --muted: #6b7280; --line: #e3e6ec;
+    --accent: #3b6cf6; --accent-text: #fff; --ok: #1f9d55; --warn: #d97706; --bad: #dc2626;
+    --user: #e8eefc; --robot: #f1f3f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161b; --panel: #1d2026; --text: #e7e9ee; --muted: #9aa1ad; --line: #2b2f37;
+      --user: #26324d; --robot: #23262d; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 15px/1.45 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif; background: var(--bg); color: var(--text);
+    display: grid; grid-template-rows: auto 1fr auto; -webkit-user-select: none; user-select: none; }
+  header { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); }
+  header h1 { font-size: 17px; margin: 0 8px 0 0; font-weight: 650; }
+  .pills { display: flex; gap: 8px; flex-wrap: wrap; flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--bg); font-size: 12.5px; color: var(--muted); border: 1px solid var(--line); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  button { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 10px; padding: 8px 14px; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+  button.danger { background: var(--bad); color: #fff; border-color: var(--bad); font-weight: 700; }
+  button:disabled { opacity: .45; cursor: default; }
+  main { display: grid; grid-template-columns: 1fr 360px; min-height: 0; }
+  main.settings-closed { grid-template-columns: 1fr 0; }
+  #transcript { overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 10px 14px; border-radius: 14px; white-space: pre-wrap; -webkit-user-select: text; user-select: text; }
+  .msg.user { align-self: flex-end; background: var(--user); border-bottom-right-radius: 4px; }
+  .msg.assistant { align-self: flex-start; background: var(--robot); border-bottom-left-radius: 4px; }
+  .msg.partial { opacity: .75; }
+  .notice { align-self: center; color: var(--muted); font-size: 12.5px; }
+  .error { align-self: center; color: var(--bad); font-size: 12.5px; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  main.settings-closed aside { display: none; }
+  aside h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 6px 0 2px; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=text], input[type=password], input[type=number], select, textarea { font: inherit; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; }
+  textarea { min-height: 70px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: end; }
+  .row > * { flex: 1; }
+  .row > button { flex: 0 0 auto; }
+  footer { border-top: 1px solid var(--line); background: var(--panel); padding: 14px 18px; display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: center; }
+  #talk { width: 150px; height: 64px; border-radius: 16px; font-size: 16px; font-weight: 650; }
+  #talk.listening { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .center { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .typed { display: flex; gap: 8px; }
+  .typed input { flex: 1; }
+  .meter { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+  .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .08s linear; }
+  .state { font-size: 13px; color: var(--muted); display: flex; gap: 14px; align-items: center; }
+  .state b { color: var(--text); font-weight: 600; text-transform: capitalize; }
+  .toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+  #stop { height: 64px; width: 110px; font-size: 15px; }
+  .hint { font-size: 12px; color: var(--muted); }
+  .keyrow { display: flex; gap: 6px; align-items: center; }
+  .keyrow input { flex: 1; }
+  .keyrow .set { font-size: 12px; color: var(--muted); min-width: 52px; text-align: right; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ruko Companion</h1>
+  <div class="pills">
+    <span class="pill"><span class="dot" id="d-robot"></span><span id="t-robot">Robot</span></span>
+    <span class="pill"><span class="dot" id="d-speaker"></span><span id="t-speaker">Speaker</span></span>
+    <span class="pill"><span class="dot" id="d-mic"></span><span id="t-mic">Microphone</span></span>
+    <span class="pill"><span class="dot" id="d-ai"></span><span id="t-ai">AI</span></span>
+  </div>
+  <button id="startstop" class="primary">Start</button>
+  <button id="toggle-settings">Settings</button>
+</header>
+
+<main id="main" class="settings-closed">
+  <section id="transcript"></section>
+  <aside id="settings">
+    <h2>Robot</h2>
+    <div class="row">
+      <label>Robot address <input type="text" id="s-robot_address" placeholder="scan to find"></label>
+      <button id="scan">Scan</button>
+    </div>
+    <label>Speaker device name <input type="text" id="s-speaker_device"></label>
+    <label>Microphone <select id="s-mic_device"></select></label>
+
+    <h2>Language model</h2>
+    <label>Provider
+      <select id="s-llm_provider">
+        <option value="anthropic">Claude (Anthropic)</option>
+        <option value="openai">OpenAI</option>
+        <option value="openai_compatible">OpenAI-compatible server (Ollama, LM Studio…)</option>
+        <option value="scripted">Offline demo (no AI)</option>
+      </select>
+    </label>
+    <label>Model <input type="text" id="s-llm_model" list="models"><datalist id="models"></datalist></label>
+    <label id="l-base">Base URL <input type="text" id="s-llm_base_url" placeholder="http://localhost:11434/v1"></label>
+    <label>Anthropic API key <div class="keyrow"><input type="password" id="k-ANTHROPIC_API_KEY" placeholder="paste to set, empty to clear"><button data-key="ANTHROPIC_API_KEY" class="savekey">Save</button><span class="set" id="st-ANTHROPIC_API_KEY"></span></div></label>
+    <label>OpenAI API key <div class="keyrow"><input type="password" id="k-OPENAI_API_KEY" placeholder="paste to set, empty to clear"><button data-key="OPENAI_API_KEY" class="savekey">Save</button><span class="set" id="st-OPENAI_API_KEY"></span></div></label>
+    <div class="hint">Keys are stored in ~/Library/Application Support/RukoCompanion/secrets.env (owner-only), never in the project.</div>
+
+    <h2>Voice</h2>
+    <label>Speech to text
+      <select id="s-stt_provider"><option value="local">faster-whisper (local, free)</option><option value="openai">OpenAI whisper-1</option></select>
+    </label>
+    <label>Whisper model <select id="s-stt_model"><option>tiny.en</option><option>base.en</option><option>small.en</option><option>medium.en</option></select></label>
+    <label>Text to speech
+      <select id="s-tts_provider"><option value="kokoro">Kokoro (local, free)</option><option value="openai">OpenAI gpt-4o-mini-tts</option><option value="say">macOS say</option></select>
+    </label>
+    <label>Voice <input type="text" id="s-tts_voice" list="voices"><datalist id="voices"></datalist></label>
+    <label>Speed <input type="number" id="s-tts_speed" step="0.05" min="0.6" max="1.5"></label>
+
+    <h2>Personality</h2>
+    <label>Preset <select id="s-personality"></select></label>
+    <label>Custom personality <textarea id="s-personality_custom" placeholder="Used when preset is 'custom'"></textarea></label>
+    <label>Your name <input type="text" id="s-user_name"></label>
+    <label>Hands-free sensitivity <input type="number" id="s-vad_threshold" step="0.002" min="0.004" max="0.08"></label>
+
+    <div class="row">
+      <button id="save" class="primary">Save settings</button>
+      <button id="reset">New conversation</button>
+      <button id="logs">Logs</button>
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <button id="talk" disabled>Hold to talk</button>
+  <div class="center">
+    <div class="state"><span>State: <b id="state">off</b></span>
+      <label class="toggle"><input type="checkbox" id="handsfree"> Hands-free</label>
+      <span class="hint">Hold the button or the space bar while you speak. Press again to interrupt.</span></div>
+    <div class="meter"><div id="meter"></div></div>
+    <div class="typed"><input type="text" id="typed" placeholder="Or type a message and press Enter"><button id="send">Send</button></div>
+  </div>
+  <button id="stop" class="danger" title="Stop all movement and audio now">STOP</button>
+</footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let api = null, running = false, talking = false, opts = {}, lastAssistantEl = null;
+
+function dot(id, cls, text, label) { const d = $(id); d.className = 'dot ' + cls; if (text !== undefined) $(label).textContent = text; }
+
+function renderStatus(s) {
+  running = !!s.running;
+  $('startstop').textContent = running ? 'Stop' : 'Start';
+  $('startstop').className = running ? '' : 'primary';
+  $('talk').disabled = !running || !s.mic;
+  const r = s.robot || {};
+  dot('d-robot', r.connected ? 'ok' : (s.daemon_process ? 'warn' : 'bad'), r.connected ? 'Robot connected' : (s.daemon_process ? 'Robot: connecting…' : 'Robot: off'), 't-robot');
+  dot('d-speaker', s.speaker ? 'ok' : (s.speak_process ? 'warn' : 'bad'), s.speaker ? 'Speaker ready' : 'Speaker: off', 't-speaker');
+  dot('d-mic', s.mic ? 'ok' : 'bad', s.mic ? (s.mic_name || 'Microphone') : ('Mic: ' + (s.provider_errors?.mic || 'off')), 't-mic');
+  const p = s.providers || {};
+  const aiOk = !!p.llm && !!p.tts && !!p.stt;
+  dot('d-ai', aiOk ? 'ok' : 'warn', aiOk ? `${p.llm} · ${p.tts}` : (Object.values(s.provider_errors || {}).find(e => true) || 'AI: not configured'), 't-ai');
+  $('state').textContent = running ? s.state : 'off';
+  $('handsfree').checked = !!s.hands_free;
+}
+
+function addMsg(role, text, partial) {
+  const t = $('transcript');
+  if (role === 'assistant' && lastAssistantEl && lastAssistantEl.dataset.partial === '1') {
+    lastAssistantEl.textContent = text; lastAssistantEl.dataset.partial = partial ? '1' : '0';
+    lastAssistantEl.className = 'msg assistant' + (partial ? ' partial' : '');
+  } else {
+    const el = document.createElement('div');
+    el.className = 'msg ' + role + (partial ? ' partial' : ''); el.textContent = text;
+    el.dataset.partial = partial ? '1' : '0'; t.appendChild(el);
+    lastAssistantEl = role === 'assistant' ? el : null;
+  }
+  t.scrollTop = t.scrollHeight;
+}
+function addNote(text, cls) { const el = document.createElement('div'); el.className = cls || 'notice'; el.textContent = text; $('transcript').appendChild(el); $('transcript').scrollTop = 1e9; }
+
+window.onCompanionEvent = (event, data) => {
+  switch (event) {
+    case 'status': renderStatus(data); break;
+    case 'state': $('state').textContent = data.state; if (data.state !== 'listening') setTalking(false); break;
+    case 'level': $('meter').style.width = Math.min(100, Math.round(data.rms * 1200)) + '%'; break;
+    case 'transcript': addMsg(data.role, data.text, data.partial); break;
+    case 'transcript_reset': $('transcript').innerHTML = ''; lastAssistantEl = null; break;
+    case 'notice': addNote(data.message); break;
+    case 'error': addNote(data.message, 'error'); break;
+    case 'gesture': break;
+  }
+};
+
+function setTalking(on) {
+  if (talking === on) return; talking = on;
+  $('talk').className = on ? 'listening' : ''; $('talk').textContent = on ? 'Listening…' : 'Hold to talk';
+  if (on) api.press_talk(); else api.release_talk();
+}
+
+function fillSettings(s, secrets) {
+  for (const k of Object.keys(s)) { const el = $('s-' + k); if (!el) continue; if (el.type === 'checkbox') el.checked = s[k]; else el.value = s[k]; }
+  for (const [k, v] of Object.entries(secrets)) { $('st-' + k).textContent = v ? 'set ✓' : 'not set'; }
+  $('l-base').style.display = s.llm_provider === 'openai_compatible' ? '' : 'none';
+  refreshLists(s);
+}
+function refreshLists(s) {
+  const prov = $('s-llm_provider').value;
+  $('models').innerHTML = (opts.llm_models?.[prov] || []).map(m => `<option>${m}</option>`).join('');
+  const voices = $('s-tts_provider').value === 'kokoro' ? opts.kokoro_voices : ($('s-tts_provider').value === 'openai' ? opts.openai_voices : ['Samantha', 'Daniel', 'Karen', 'Moira']);
+  $('voices').innerHTML = (voices || []).map(v => `<option>${v}</option>`).join('');
+  $('l-base').style.display = prov === 'openai_compatible' ? '' : 'none';
+}
+function collectSettings() {
+  const out = {};
+  document.querySelectorAll('[id^="s-"]').forEach(el => { const k = el.id.slice(2); out[k] = el.type === 'checkbox' ? el.checked : (el.type === 'number' ? parseFloat(el.value) : el.value); });
+  return out;
+}
+
+async function init() {
+  api = window.pywebview.api;
+  const st = await api.get_state();
+  opts = st.options;
+  $('s-personality').innerHTML = opts.personalities.map(p => `<option>${p}</option>`).join('');
+  $('s-mic_device').innerHTML = opts.mics.map(m => `<option>${m}</option>`).join('');
+  fillSettings(st.settings, st.secrets);
+  renderStatus(st.status);
+  for (const m of st.transcript) addMsg(m.role, m.content.replace(/\[[a-z_]+\]\s*/g, ''), false);
+  if (!st.settings.robot_address) { $('main').classList.remove('settings-closed'); addNote('No robot address yet — open Settings and press Scan with the robot switched on.'); }
+}
+
+$('startstop').onclick = async () => { renderStatus(running ? await api.stop() : await api.start()); };
+$('toggle-settings').onclick = () => $('main').classList.toggle('settings-closed');
+$('stop').onclick = () => { setTalking(false); api.emergency_stop(); };
+$('handsfree').onchange = (e) => api.set_hands_free(e.target.checked);
+$('reset').onclick = () => api.reset_conversation();
+$('logs').onclick = () => api.open_logs();
+$('save').onclick = async () => { const r = await api.save_settings(collectSettings()); fillSettings(r.settings, (await api.get_state()).secrets); renderStatus(r.status); addNote('Settings saved'); };
+$('scan').onclick = async () => { $('scan').disabled = true; $('scan').textContent = 'Scanning…'; try { const r = await api.scan(); if (r.found.length) { $('s-robot_address').value = r.found[0].address; addNote(`Found ${r.found.map(f => f.name).join(', ')}`); } else addNote('No robot found. Is it switched on and nearby?', 'error'); } finally { $('scan').disabled = false; $('scan').textContent = 'Scan'; } };
+document.querySelectorAll('.savekey').forEach(b => b.onclick = async () => { const k = b.dataset.key; const v = $('k-' + k).value; const st = await api.set_secret(k, v); $('k-' + k).value = ''; for (const [kk, vv] of Object.entries(st)) $('st-' + kk).textContent = vv ? 'set ✓' : 'not set'; addNote(v ? `${k} saved` : `${k} cleared`); });
+$('s-llm_provider').onchange = () => refreshLists(collectSettings());
+$('s-tts_provider').onchange = () => refreshLists(collectSettings());
+$('send').onclick = () => { const v = $('typed').value.trim(); if (v) { api.send_text(v); $('typed').value = ''; } };
+$('typed').onkeydown = (e) => { if (e.key === 'Enter') $('send').onclick(); };
+
+const talk = $('talk');
+talk.onmousedown = () => { if (!talk.disabled) setTalking(true); };
+talk.onmouseup = talk.onmouseleave = () => setTalking(false);
+talk.ontouchstart = (e) => { e.preventDefault(); if (!talk.disabled) setTalking(true); };
+talk.ontouchend = () => setTalking(false);
+document.addEventListener('keydown', (e) => { if (e.code === 'Space' && !e.repeat && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA' && !talk.disabled) { e.preventDefault(); setTalking(true); } });
+document.addEventListener('keyup', (e) => { if (e.code === 'Space' && talking) { e.preventDefault(); setTalking(false); } });
+
+window.addEventListener('pywebviewready', init);
+</script>
+</body>
+</html>

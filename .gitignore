@@ -1,0 +1,7 @@
+carle/
+.venv/
+.carle/
+__pycache__/
+*.pyc
+.env
+models/
