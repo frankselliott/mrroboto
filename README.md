@@ -29,6 +29,7 @@ git clone https://github.com/benwilson/carle              # the protocol layer, 
 (cd carle && uv sync --all-extras)                         # BLE + speak server + MCP
 uv sync --all-extras                                       # the companion (Python 3.12)
 scripts/fetch_models.sh                                    # local voice (Kokoro, ~350 MB)
+clang -O2 -o macos/RukoCompanion.app/Contents/MacOS/RukoCompanion macos/launcher.c
 codesign --force --deep --sign - macos/RukoCompanion.app   # the launcher that owns permissions
 ```
 
@@ -41,8 +42,10 @@ window, open *Settings*, press *Scan*, and the robot's address is saved. Press *
 macOS grants Bluetooth and microphone access to the *application* responsible for a process. A
 bare terminal process is killed outright when it touches CoreBluetooth unless its parent app
 declares Bluetooth usage. `macos/RukoCompanion.app` is a tiny ad-hoc-signed bundle whose
-`Info.plist` declares both, and whose executable is a shell script that runs the companion (or,
-with arguments, any command under those permissions):
+`Info.plist` declares both. Its executable is a small native binary (`macos/launcher.c`, built
+with `clang`) that runs `launch.sh`, which starts the companion (or, with arguments, any command
+under those permissions). The binary matters: a bundle whose main executable is a shell script
+turns into `/bin/bash` in macOS's eyes, and the microphone prompt then never appears.
 
 ```bash
 open -n -a macos/RukoCompanion.app --args carle scan                     # run Carle verbs

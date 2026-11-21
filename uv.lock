@@ -655,6 +655,19 @@ wheels = [
 ]
 
 [[package]]
+name = "pyobjc-framework-corebluetooth"
+version = "13.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/dc/5b/9fd06be0f5815eba5fe8708f6a3f0e37c3e6c6e8aaf2a480c3e5b99cdab6/pyobjc_framework_corebluetooth-13.0.tar.gz", hash = "sha256:06c11f81d25286665460facd0b53562faff30d92d3c4a15517042b878c295443", size = 38000, upload-time = "2026-10-30T10:46:11.598Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/59/a074ed53ab1522c35fa033360f9c2c4e058622e5ffad2ef60e0b15b2845c/pyobjc_framework_corebluetooth-13.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:be976ca6217393a5a771fbb7c3d7fd71c0a1a2ab25f30cf5328b0ecd908a0e84", size = 13412, upload-time = "2026-10-30T10:35:56.887Z" },
+]
+
+[[package]]
 name = "pyobjc-framework-coremedia"
 version = "13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -835,6 +848,7 @@ dependencies = [
     { name = "openai" },
     { name = "pyobjc-framework-avfoundation" },
     { name = "pyobjc-framework-cocoa" },
+    { name = "pyobjc-framework-corebluetooth" },
     { name = "pywebview" },
     { name = "pyyaml" },
     { name = "sounddevice" },
@@ -865,6 +879,7 @@ requires-dist = [
     { name = "openai", specifier = ">=1.50" },
     { name = "pyobjc-framework-avfoundation", specifier = ">=10.0" },
     { name = "pyobjc-framework-cocoa", specifier = ">=10.0" },
+    { name = "pyobjc-framework-corebluetooth", specifier = ">=10.0" },
     { name = "pywebview", specifier = ">=5.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sounddevice", specifier = ">=0.5" },

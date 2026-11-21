@@ -47,3 +47,44 @@ def request_microphone(timeout: float = 120.0) -> str:
     except Exception as exc:  # noqa: BLE001
         _log.warning("microphone request failed: %s", exc)
     return microphone_status()
+
+
+BT_STATUS = {0: "not-determined", 1: "restricted", 2: "denied", 3: "authorized"}
+
+
+def bluetooth_status() -> str:
+    try:
+        import CoreBluetooth  # noqa: PLC0415
+
+        return BT_STATUS.get(int(CoreBluetooth.CBManager.authorization()), "unknown")
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("cannot query bluetooth status: %s", exc)
+        return "unknown"
+
+
+def request_bluetooth(timeout: float = 120.0) -> str:
+    """Show the macOS Bluetooth prompt if undecided (by creating a central manager)."""
+    status = bluetooth_status()
+    if status != "not-determined":
+        return status
+    try:
+        import time  # noqa: PLC0415
+
+        import CoreBluetooth  # noqa: PLC0415
+        import objc  # noqa: PLC0415
+        from Foundation import NSObject, NSRunLoop, NSDate  # noqa: PLC0415
+
+        class _Delegate(NSObject):
+            def centralManagerDidUpdateState_(self, central):  # noqa: N802
+                pass
+
+        delegate = _Delegate.alloc().init()
+        manager = CoreBluetooth.CBCentralManager.alloc().initWithDelegate_queue_(delegate, None)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline and bluetooth_status() == "not-determined":
+            NSRunLoop.currentRunLoop().runUntilDate_(NSDate.dateWithTimeIntervalSinceNow_(0.5))
+        del manager, delegate
+        objc.recycleAutoreleasePool()
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("bluetooth request failed: %s", exc)
+    return bluetooth_status()
