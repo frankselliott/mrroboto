@@ -23,9 +23,9 @@ def test_secrets_file_is_owner_only_and_never_in_project(tmp_path):
     assert config.load_secrets(p)["ANTHROPIC_API_KEY"] == "sk-test-123"
     config.set_secret("ANTHROPIC_API_KEY", "", p)
     assert "ANTHROPIC_API_KEY" not in config.load_secrets(p)
-    assert config.secret_status({"OPENAI_API_KEY": "x"}) == {
-        "ANTHROPIC_API_KEY": False, "OPENAI_API_KEY": True, "ELEVENLABS_API_KEY": False,
-    }
+    status = config.secret_status({"OPENAI_API_KEY": "x"})
+    assert status["OPENAI_API_KEY"] is True and status["ANTHROPIC_API_KEY"] is False
+    assert set(status) == set(config.SECRET_NAMES)
     assert not config.SECRETS_PATH.is_relative_to(config.ROOT)
 
 

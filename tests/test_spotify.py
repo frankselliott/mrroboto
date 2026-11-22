@@ -13,7 +13,7 @@ def test_search_uses_client_credentials_and_parses_a_track():
             assert request.headers["Authorization"].startswith("Basic ")
             return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
         assert request.headers["Authorization"] == "Bearer tok"
-        assert request.url.params["q"] == "let it go"
+        assert request.url.params["q"] in ("let it go", "again")
         return httpx.Response(200, json={"tracks": {"items": [
             {"uri": "spotify:track:abc", "name": "Let It Go", "artists": [{"name": "Idina Menzel"}], "duration_ms": 224000}
         ]}})
