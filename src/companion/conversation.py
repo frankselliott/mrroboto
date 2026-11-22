@@ -30,7 +30,9 @@ from companion.behaviour import State
 from companion.config import Settings
 from companion.dialogue import Sentence, SentenceAssembler
 from companion.llm import LLM, Conversation, build_system_prompt, make_llm
-from companion.choreography import Planner, beat_hold, energy_bands, estimate_bpm, routines_for, theme_for
+from companion.choreography import (
+    Planner, beat_hold, energy_bands, estimate_bpm, routines_for, script_for, song_routines, theme_for,
+)
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
@@ -704,12 +706,33 @@ class Companion:
         bpm = estimate_bpm(pcm, sr)
         hold = beat_hold(bpm)
         theme = theme_for(song.title)
-        planner = Planner(routines_for(theme, hold, self.settings.dance_floor_moves))
+        script = script_for(song.title)
+        registry = song_routines(hold)
+        floor_ok = self.settings.dance_floor_moves
+        planner = Planner(routines_for(theme, hold, floor_ok))
         total = len(pcm) / sr
         band_window = 2.0
         bands = energy_bands(pcm, sr, band_window)
-        state = {"next": 0.0, "face_at": 0.0, "face_i": 0, "band": -1, "routines": []}
-        self.emit("notice", {"message": f"{theme.description.capitalize()} at about {bpm:.0f} beats per minute"})
+        state = {"next": 0.0, "face_at": 0.0, "face_i": 0, "band": -1, "routines": [], "section": None}
+        if script:
+            self.emit("notice", {"message": f"Bespoke choreography for {script.title} at about {bpm:.0f} beats per minute"})
+        else:
+            self.emit("notice", {"message": f"{theme.description.capitalize()} at about {bpm:.0f} beats per minute"})
+
+        def pick_routine(position: float):
+            """Scripted: the section's signature on entry, then its pool; else the theme planner."""
+            if script is None:
+                return planner.next(position / total if total else 0.0)
+            section = script.section_at(position)
+            if section is not state["section"]:
+                state["section"], state["face_i"], state["face_at"] = section, 0, 0.0
+                if section.note:
+                    self.emit("gesture", {"tag": f"section: {section.note}"})
+                if section.signature and section.signature in registry:
+                    return registry[section.signature]
+            pool = [registry[n] for n in section.pool if n in registry and (floor_ok or not registry[n].floor)]
+            pool = [r for r in pool if r.name != (state["routines"][-1] if state["routines"] else None)] or pool
+            return pool[planner.count % len(pool)] if pool else planner.next(position / total)
 
         def body():
             start = time.monotonic()
@@ -726,7 +749,8 @@ class Companion:
                     return
                 now = time.monotonic()
                 if now >= state["next"]:
-                    routine = planner.next(written / total if total else 0.0)
+                    routine = pick_routine(written)
+                    planner.count += 1
                     try:
                         self.daemon.enqueue(list(routine.steps))
                         state["routines"].append(routine.name)
@@ -738,7 +762,14 @@ class Companion:
                 # The face follows the music: quiet/medium/loud passages each have their own
                 # faces for this theme, cycled every face_period seconds.
                 band = int(bands[min(len(bands) - 1, int(written / band_window))])
-                if band != state["band"] or now >= state["face_at"]:
+                if script is not None:
+                    section = script.section_at(written)
+                    if now >= state["face_at"]:
+                        palette = section.faces
+                        self._apply_face(palette[state["face_i"] % len(palette)])
+                        state["face_i"] += 1
+                        state["face_at"] = now + script.face_period
+                elif band != state["band"] or now >= state["face_at"]:
                     if band != state["band"]:
                         state["band"], state["face_i"] = band, 0
                     else:

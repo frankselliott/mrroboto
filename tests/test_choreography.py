@@ -73,3 +73,32 @@ def test_theme_selection_and_themed_routines_are_servo_safe():
     loud = (np.random.default_rng(0).standard_normal(sr * 4) * 8000).astype(np.int16)
     bands = energy_bands(np.concatenate([quiet, loud, quiet]), sr, 2.0)
     assert list(bands) == [0, 0, 2, 2, 0, 0]
+
+
+def test_every_song_script_is_complete_and_safe():
+    from companion.choreography import SCRIPTS, script_for, song_routines
+
+    reg = song_routines(0.5)
+    for script in SCRIPTS:
+        assert script.sections[0].start == 0 and script.sections[-1].end >= 300
+        for a, b in zip(script.sections, script.sections[1:]):
+            assert a.end == b.start, (script.title, a, b)
+        for sec in script.sections:
+            assert sec.pool, sec
+            for name in sec.pool + ((sec.signature,) if sec.signature else ()):
+                assert name in reg, (script.title, name)
+            assert all(f in (39, 41, 43, 45, 47) for f in sec.faces)
+    for r in reg.values():
+        for s in r.steps:
+            if "pose" in s or "waist" in s or "travel" in s:
+                assert s.get("hold", 0.5) >= MIN_HOLD, (r.name, s)
+    titles = {
+        "Styx Mr Roboto": "Styx — Mr Roboto", "Beastie Boys Intergalactic": "Beastie Boys — Intergalactic",
+        "The Flaming Lips Yoshimi Battles the Pink Robots Pt 1": "The Flaming Lips — Yoshimi Battles the Pink Robots",
+        "Austin Colin Big Bad Frog": "Austin & Colin — Big Bad Frog", "The Robot Song": "The Robot Song",
+        "Tyrannosaurus Rex Dinosaur Song Pinkfong Songs for Children": "Pinkfong — Tyrannosaurus Rex",
+        "Tung Tung Tung Sahur Ratatung": "Tung Tung Tung Sahur",
+    }
+    for t, expected in titles.items():
+        assert script_for(t) is not None and script_for(t).title == expected, t
+    assert script_for("Pharrell Williams - Happy") is None

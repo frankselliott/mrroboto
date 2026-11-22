@@ -66,3 +66,22 @@ def test_dance_session_queues_routines_on_the_beat(monkeypatch, tmp_path):
     assert c.daemon.items[-1] == [{"face": 0}, {"gesture": 19}]
     assert c.state == State.IDLE
     assert any(e == "notice" and "beats per minute" in d["message"] for e, d in events)
+
+
+def test_scripted_song_opens_with_its_signature_move(monkeypatch, tmp_path):
+    sr = 24000
+    song = np.zeros(sr * 4, dtype=np.int16)
+    monkeypatch.setattr(conversation, "decode", lambda s: song)
+    monkeypatch.setattr(conversation, "estimate_bpm", lambda pcm, sr: 146.0)
+    events = []
+    c = Companion(Settings(hands_free=False, music_dir=str(tmp_path)), {}, lambda e, d: events.append((e, d)))
+    c.running = True
+    c.daemon = FakeDaemon()
+    c.speak = FakeSpeak()
+    c.library.songs = [Song("Styx Mr Roboto", tmp_path / "x.m4a")]
+    c.last_status = {"robot": {"connected": True}}
+    c._dance("mr roboto")
+    tags = [d["tag"] for e, d in events if e == "gesture"]
+    assert tags[0].startswith("section: robotic intro")
+    assert tags[1] == "dance: domo bow"
+    assert any("Bespoke choreography for Styx" in d["message"] for e, d in events if e == "notice")

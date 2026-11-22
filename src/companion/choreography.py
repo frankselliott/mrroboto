@@ -302,3 +302,137 @@ def energy_bands(pcm: np.ndarray, sr: int, window: float = 2.0) -> np.ndarray:
     bands[rms <= lo] = 0
     bands[rms >= hi] = 2
     return bands
+
+
+# --- bespoke scripts: one choreography per song, following its sections ----------------------
+
+
+def song_routines(h: float) -> dict[str, Routine]:
+    """Signature moves written for particular songs, plus every themed routine, by name."""
+    H = h * 2  # noqa: N806
+    extra = [
+        # Styx — Mr Roboto
+        Routine("domo bow", [_g(27), _pause(h), _p(1, h), _p(3, h), _pause(h), _p(2, h), _p(4, h), _g(27)], 2),
+        Routine("secret secret", [_p(1, h), _p(9, h), _pause(H * 2), _p(10, h), _p(2, h), _w(1, h), _w(2, h)], 1),
+        Routine("not a robot", [_p(5, h), _p(7, h), _pause(H), _p(1, h), _p(3, h), _pause(H), _p(2, h), _p(4, h), _p(6, h), _p(8, h)], 2),
+        Routine("modern man", [_p(1, H), _p(3, H), _p(9, h), _p(11, h), _pause(H), _p(10, h), _p(12, h), _p(2, h), _p(4, h), _g(27)], 3),
+        Routine("power down", [_p(1, H), _p(2, H), _w(1, H), _w(2, H), _pause(H), _g(19)], 1),
+        # Beastie Boys — Intergalactic
+        Routine("intergalactic punch", [_p(1, h), _p(2, h), _p(3, h), _p(4, h), _p(1, h), _p(9, h), _p(10, h), _p(2, h), _p(3, h), _p(11, h), _p(12, h), _p(4, h)], 3),
+        Routine("planetary", [_p(5, h), _p(7, h), _pause(h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _p(6, h), _p(8, h)], 2),
+        # The Flaming Lips — Yoshimi
+        Routine("tai chi", [_p(5, H), _pause(h), _p(1, H), _pause(h), _p(6, H), _p(2, H), _p(7, H), _pause(h), _p(3, H), _p(8, H), _p(4, H)], 1),
+        Routine("karate chop", [_p(3, h), _p(11, h), _p(12, h), _p(4, h), _p(1, h), _p(9, h), _p(10, h), _p(2, h), _p(3, h), _p(4, h)], 3),
+        Routine("pink robot down", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _pause(h), _p(10, h), _p(12, h), _p(2, h), _p(4, h), _g(27)], 2),
+        # Austin & Colin — Big Bad Frog
+        Routine("frog crouch", [_p(9, H), _p(11, H), _pause(H * 2), _w(1, h), _w(2, h), _p(10, H), _p(12, H)], 1),
+        Routine("frog hop", [_p(1, h), _p(3, h), _w(1, h), _p(2, h), _p(4, h), _w(2, h), _p(1, h), _p(3, h), _w(1, h), _p(2, h), _p(4, h), _w(2, h)], 3),
+        Routine("tongue flick", [_p(3, h), _p(4, h), _p(3, h), _p(4, h), _p(11, h), _p(12, h)], 2),
+        Routine("ribbit", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h)], 2),
+        Routine("lily pad float", [_g(31), _pause(H), _w(1, H), _w(2, H), _g(33)], 1),
+        # The Robot Song
+        Routine("beep boop", [_p(1, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(2, h)], 2),
+        # Pinkfong — T-Rex
+        Routine("dino wake", [_w(1, H), _w(2, H), _p(1, H), _p(9, H), _pause(H), _p(10, H), _p(2, H)], 1),
+        # Tung Tung Tung Sahur
+        Routine("tung drum", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _pause(h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h)], 3),
+    ]
+    reg: dict[str, Routine] = {}
+    for lib in (build_routines(h, True), robot_routines(h, True), dinosaur_routines(h, True), silly_routines(h, True), extra):
+        for r in lib:
+            reg.setdefault(r.name, r)
+    return reg
+
+
+@dataclass(frozen=True)
+class Section:
+    start: float
+    end: float
+    pool: tuple[str, ...]  # routine names to draw from
+    faces: tuple[int, ...]  # cycled through this section
+    signature: str | None = None  # fired when the section begins
+    note: str = ""
+
+
+@dataclass(frozen=True)
+class SongScript:
+    keywords: tuple[str, ...]
+    title: str
+    sections: tuple[Section, ...]
+    face_period: float = 4.0
+
+    def section_at(self, t: float) -> Section:
+        for s in self.sections:
+            if s.start <= t < s.end:
+                return s
+        return self.sections[-1]
+
+
+T, K, P, L, H = FACE_TALK, FACE_THINK, FACE_HAPPY, FACE_LAUGH, FACE_SAD  # short names
+
+SCRIPTS: tuple[SongScript, ...] = (
+    SongScript(("mr roboto", "styx"), "Styx — Mr Roboto", (
+        Section(0, 44, ("the robot", "servo tilt", "systems check"), (K, T), "domo bow", "robotic intro chant: slow, mechanical, bowing"),
+        Section(44, 90, ("robot arms", "tin man", "the robot"), (T, K), "power up", "first verse"),
+        Section(90, 130, ("secret secret", "glitch", "servo tilt"), (K,), "secret secret", "secret, secret, I've got a secret"),
+        Section(130, 200, ("domo bow", "robot wave", "power up", "robot arms"), (T, P), "domo bow", "chorus: domo arigato"),
+        Section(200, 260, ("not a robot", "open arms", "robot wave"), (P, T), "not a robot", "I'm not a robot without emotions"),
+        Section(260, 290, ("servo tilt", "systems check", "tai chi"), (K,), None, "quiet breakdown"),
+        Section(290, 400, ("modern man", "arms up pump", "domo bow"), (P, L), "modern man", "I am the modern man: big finish"),
+    ), 3.0),
+    SongScript(("intergalactic", "beastie"), "Beastie Boys — Intergalactic", (
+        Section(0, 44, ("systems check", "servo tilt", "the robot"), (K, T), None, "vocoded intro: slow robot"),
+        Section(44, 60, ("intergalactic punch", "robot arms"), (T, P), "intergalactic punch", "beat drops"),
+        Section(60, 76, ("the robot", "tin man", "glitch"), (T,), None, "verse"),
+        Section(76, 105, ("intergalactic punch", "planetary", "robot arms"), (P, T), "intergalactic punch", "chorus"),
+        Section(105, 144, ("glitch", "robot wave", "tin man", "servo tilt"), (T, K), None, "verse"),
+        Section(144, 170, ("intergalactic punch", "planetary", "power up"), (P, L), "intergalactic punch", "chorus"),
+        Section(170, 192, ("the robot", "glitch", "robot arms"), (T,), None, "verse"),
+        Section(192, 232, ("intergalactic punch", "planetary", "arms up pump"), (L, P), "intergalactic punch", "final chorus"),
+        Section(232, 400, ("servo tilt", "systems check", "power down"), (K, T), "power down", "outro"),
+    ), 3.0),
+    SongScript(("yoshimi", "flaming lips"), "The Flaming Lips — Yoshimi Battles the Pink Robots", (
+        Section(0, 48, ("tai chi", "torso groove", "servo tilt"), (K, P), None, "gentle verse: Yoshimi trains"),
+        Section(48, 90, ("karate chop", "pink robot down", "tai chi"), (P, L), "karate chop", "chorus: fighting the pink robots"),
+        Section(90, 116, ("tai chi", "torso groove", "wave hello"), (P, K), None, "verse"),
+        Section(116, 185, ("karate chop", "pink robot down", "open arms"), (L, P), "karate chop", "big chorus"),
+        Section(185, 400, ("tai chi", "big sway", "flex and bow"), (P, K), "flex and bow", "outro"),
+    ), 4.0),
+    SongScript(("frog",), "Austin & Colin — Big Bad Frog", (
+        Section(0, 20, ("frog crouch", "ribbit"), (K, P), "frog crouch", "a frog on its lily pad"),
+        Section(20, 76, ("frog hop", "tongue flick", "ribbit", "flail"), (L, P), "frog hop", "hopping about"),
+        Section(76, 110, ("lily pad float", "frog crouch", "wiggle wiggle"), (P, K), "lily pad float", "quiet bit"),
+        Section(110, 400, ("frog hop", "big shrug", "tongue flick", "bow and pop"), (L, P), "frog hop", "big bad finale"),
+    ), 3.0),
+    SongScript(("robot song",), "The Robot Song", (
+        Section(0, 32, ("systems check", "servo tilt"), (K, T), "power up", "switching on"),
+        Section(32, 90, ("beep boop", "robot arms", "the robot", "tin man"), (T, P), "beep boop", "I am a robot"),
+        Section(90, 110, ("tin man", "servo tilt", "glitch"), (T, K), None, "verse"),
+        Section(110, 160, ("power up", "beep boop", "robot wave", "the robot"), (P, T), "power up", "chorus"),
+        Section(160, 192, ("arms up pump", "robot arms", "glitch"), (L, P), "arms up pump", "big section"),
+        Section(192, 400, ("servo tilt", "systems check", "power down"), (K, T), "power down", "powering down"),
+    ), 3.0),
+    SongScript(("dinosaur", "tyrannosaurus", "t rex", "t-rex"), "Pinkfong — Tyrannosaurus Rex", (
+        Section(0, 12, ("dino wake", "sniff the air"), (H, K), "dino wake", "the dinosaur wakes up"),
+        Section(12, 40, ("stomp stomp", "big roar", "tiny t-rex arms"), (H, L), "big roar", "king of the dinosaurs"),
+        Section(40, 64, ("tiny t-rex arms", "chomp chomp", "claws out", "tail swing"), (P, H), "chomp chomp", "verse"),
+        Section(64, 90, ("big roar", "stomp stomp", "thunder lizard"), (L, H), "big roar", "roar!"),
+        Section(90, 400, ("tail swing", "sniff the air", "flex and bow"), (P, K), "flex and bow", "settling down"),
+    ), 3.0),
+    SongScript(("tung", "sahur"), "Tung Tung Tung Sahur", (
+        Section(0, 10, ("silly sway", "wiggle wiggle"), (P, K), None, "intro"),
+        Section(10, 26, ("tung drum", "flail", "jazz hands"), (L, P), "tung drum", "tung tung tung"),
+        Section(26, 46, ("wiggle wiggle", "big shrug", "silly sway"), (L, K), "big shrug", "silly bit"),
+        Section(46, 72, ("tung drum", "shimmy shake", "flail"), (L, P), "tung drum", "tung tung tung"),
+        Section(72, 84, ("silly sway", "one arm up"), (P, K), None, "breather"),
+        Section(84, 400, ("tung drum", "sahur drum", "flail", "bow and pop"), (L, P), "tung drum", "finale"),
+    ), 2.5),
+)
+
+
+def script_for(title: str) -> SongScript | None:
+    t = (title or "").lower()
+    for script in SCRIPTS:
+        if any(k in t for k in script.keywords):
+            return script
+    return None
