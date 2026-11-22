@@ -15,6 +15,8 @@
   <string>Ruko Companion talks to the Ruko 1088 robot over Bluetooth Low Energy to move its arms and show expressions.</string>
   <key>NSBluetoothPeripheralUsageDescription</key>
   <string>Ruko Companion talks to the Ruko 1088 robot over Bluetooth Low Energy.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Ruko Companion controls the Spotify app to play songs for the robot to dance to.</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>Ruko Companion listens through the microphone so you can talk to the robot.</string>
 </dict>

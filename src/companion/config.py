@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CARLE_DIR = ROOT / "carle"
 MODELS_DIR = ROOT / "models"
 
-SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY")
+SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET")
 
 def _bundled_personality(name: str) -> str:
     path = Path(__file__).parent / "personalities" / f"{name}.md"
@@ -103,6 +103,8 @@ class Settings:
     # music
     music_dir: str = "~/Downloads/Robot songs"
     dance_floor_moves: bool = False  # allow turns/steps while dancing (floor only, never a table)
+    spotify_enabled: bool = True  # play songs from Spotify when the keys are set
+    spotify_bpm: float = 112.0  # tempo guess for Spotify dances (no tempo data available)
     # privacy / debug
     keep_audio: bool = False
 

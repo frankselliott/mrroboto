@@ -38,6 +38,7 @@ from companion.choreography import (
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
+from companion.spotify import SpotifyApp, SpotifySearch
 from companion.stt import STT, make_stt
 from companion.tts import TTS, make_tts
 
@@ -93,6 +94,8 @@ class Companion:
         self._turns_since_memory = 0
         self._memory_lock = threading.Lock()
         self._party_cancel = threading.Event()
+        self.spotify_app = SpotifyApp()
+        self._spotify_cancel = threading.Event()
         self._wake_until = 0.0
         self._dance_cancel = threading.Event()
         self._last_interaction = time.monotonic()
@@ -432,6 +435,89 @@ class Companion:
         threading.Thread(target=self._dance, args=(title,), daemon=True).start()
         return True
 
+    # --- spotify ------------------------------------------------------------------------------
+
+    def spotify_ready(self) -> bool:
+        return bool(self.settings.spotify_enabled and self.secrets.get("SPOTIFY_CLIENT_ID") and self.secrets.get("SPOTIFY_CLIENT_SECRET"))
+
+    def play_spotify(self, query: str) -> bool:
+        if not self.running or not self.spotify_ready() or not query.strip():
+            return False
+        if self.busy:
+            self.interrupt(reason="spotify")
+        threading.Thread(target=self._spotify_dance, args=(query,), daemon=True).start()
+        return True
+
+    def _spotify_dance(self, query: str) -> None:
+        """Search Spotify, play it in the Spotify app (out of the robot), dance a themed routine."""
+        try:
+            track = SpotifySearch(self.secrets["SPOTIFY_CLIENT_ID"], self.secrets["SPOTIFY_CLIENT_SECRET"]).search(query)
+        except Exception as exc:  # noqa: BLE001
+            self.emit("error", {"message": f"Spotify search failed: {exc}"})
+            return
+        if track is None:
+            self.emit("notice", {"message": f"Spotify has nothing for '{query}'"})
+            self._say_short("I couldn't find that one on Spotify.")
+            return
+        cancel = threading.Event()
+        self._spotify_cancel = cancel
+        try:
+            self.spotify_app.play(track.uri)
+        except Exception as exc:  # noqa: BLE001
+            self.emit("error", {"message": f"Could not start Spotify: {exc}"})
+            return
+        if self.mic:
+            self.mic.set_muted(True)
+        self._set_state(State.DANCING)
+        self.emit("transcript", {"role": "assistant", "text": f"♪ {track.title} (Spotify)", "partial": False})
+        hold = beat_hold(self.settings.spotify_bpm)
+        theme = theme_for(track.title)
+        planner = Planner(routines_for(theme, hold, self.settings.dance_floor_moves))
+        total = max(1.0, track.duration_ms / 1000.0)
+        next_move, face_at, face_i = 0.0, 0.0, 0
+        start = time.monotonic()
+        _log.info("spotify dance: %s (%s theme, %.0fs)", track.title, theme.name, total)
+        try:
+            # Give the app a moment to start, then dance until it stops playing.
+            time.sleep(1.5)
+            while not cancel.is_set() and self.running:
+                state = self.spotify_app.state()
+                if state not in ("playing", "unknown"):
+                    break
+                now = time.monotonic()
+                position = self.spotify_app.position() or (now - start)
+                if now >= next_move:
+                    routine = planner.next(min(1.0, position / total))
+                    try:
+                        self.daemon.enqueue(list(routine.steps))
+                        self.emit("gesture", {"tag": f"dance: {routine.name}"})
+                    except DaemonError:
+                        pass
+                    next_move = now + routine.duration + hold
+                if now >= face_at:
+                    band = 1 if position < total * 0.3 else 2
+                    palette = theme.faces[band]
+                    self._apply_face(palette[face_i % len(palette)])
+                    face_i += 1
+                    face_at = now + theme.face_period
+                time.sleep(0.5)
+        finally:
+            if cancel.is_set():
+                self.spotify_app.pause()
+            try:
+                self.daemon.clear()
+                self.daemon.enqueue(behaviour.home_items())
+            except DaemonError:
+                pass
+            self._arms_busy_until = 0.0
+            self._face = behaviour.FACE_CLEAR
+            time.sleep(UNMUTE_DELAY)
+            if self.mic:
+                self.mic.set_muted(False)
+            self._open_follow_up_window()
+            if self.running:
+                self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
+
     def _dance_party(self) -> None:
         """Every song in the library, shuffled, until someone interrupts."""
         import random  # noqa: PLC0415
@@ -502,6 +588,9 @@ class Companion:
             turn.cancel.set()
         self._dance_cancel.set()
         self._party_cancel.set()
+        if not self._spotify_cancel.is_set():
+            self._spotify_cancel.set()
+            threading.Thread(target=self.spotify_app.pause, daemon=True).start()
         self.speak.stop()
         try:
             self.daemon.clear()
@@ -615,7 +704,7 @@ class Companion:
                     # so the warm Claude Code process never has to restart for a new minute.
                     last = messages[-1]
                     messages = messages[:-1] + [Message(last.role, f"({self.context.text()})\n{last.content}")]
-                system = build_system_prompt(self.settings, self.library.titles(), memstore.for_prompt(self.memories))
+                system = build_system_prompt(self.settings, self.library.titles(), memstore.for_prompt(self.memories), self.spotify_ready())
                 for chunk in self.llm.stream(system, messages):
                     if turn.cancel.is_set():
                         break
@@ -753,6 +842,10 @@ class Companion:
                     self._turns_since_memory += 1
                     if self._turns_since_memory >= 4:
                         threading.Thread(target=self._remember, name="remember", daemon=True).start()
+                spotify_q = next((arg for name, arg in requested_actions if name == "spotify"), None)
+                if spotify_q and not interrupted and self.running and self.spotify_ready():
+                    self._spotify_dance(spotify_q)
+                    return
                 dance = next((arg for name, arg in requested_actions if name == "dance"), None)
                 if dance and not interrupted and self.running:
                     if dance.strip().lower() in ("party", "all", "everything", "dance party"):

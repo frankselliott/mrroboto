@@ -146,6 +146,9 @@
     <h2>Music</h2>
     <label>Songs folder <input type="text" id="s-music_dir"></label>
     <div class="hint" id="songs-found"></div>
+    <label>Spotify client ID <div class="keyrow"><input type="password" id="k-SPOTIFY_CLIENT_ID" placeholder="from developer.spotify.com"><button data-key="SPOTIFY_CLIENT_ID" class="savekey">Save</button><span class="set" id="st-SPOTIFY_CLIENT_ID"></span></div></label>
+    <label>Spotify client secret <div class="keyrow"><input type="password" id="k-SPOTIFY_CLIENT_SECRET" placeholder="from developer.spotify.com"><button data-key="SPOTIFY_CLIENT_SECRET" class="savekey">Save</button><span class="set" id="st-SPOTIFY_CLIENT_SECRET"></span></div></label>
+    <label class="toggle"><input type="checkbox" id="s-spotify_enabled"> Play songs from Spotify (needs the Spotify app and Premium)</label>
     <label class="toggle"><input type="checkbox" id="s-dance_floor_moves"> Allow turns and steps while dancing (robot on the floor, never a table)</label>
 
     <div class="row">
@@ -271,6 +274,8 @@ $('reset').onclick = () => api.reset_conversation();
 $('logs').onclick = () => api.open_logs();
 $('save').onclick = async () => { const r = await api.save_settings(collectSettings()); const st = await api.get_state(); opts = st.options; fillSettings(r.settings, st.secrets); renderSongs(opts.songs || []); renderStatus(r.status); addNote('Settings saved'); };
 $('party').onclick = () => api.play_song('party');
+$('spotify-go').onclick = async () => { const q = $('spotify').value.trim(); if (!q) return; const r = await api.play_spotify(q); if (!r.ok) addNote('Spotify is not set up (add the client ID and secret in Settings) or the app is stopped', 'error'); else $('spotify').value = ''; };
+$('spotify').onkeydown = (e) => { if (e.key === 'Enter') $('spotify-go').onclick(); };
 $('save-memories').onclick = async () => { const r = await api.save_memories($('memories').value); addNote(`Saved ${r.count} memories`); };
 $('forget').onclick = async () => { if (confirm('Forget everything Mr Roboto remembers from earlier days?')) { await api.save_memories(''); $('memories').value = ''; addNote('Memories cleared'); } };
 $('dance').onclick = async () => { const t = $('song').value; if (!t) return; const r = await api.play_song(t); if (!r.ok) addNote('Could not play ' + t, 'error'); };

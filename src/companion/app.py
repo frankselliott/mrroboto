@@ -123,6 +123,9 @@ class Api:
         self.c.save_memories((text or "").splitlines())
         return {"count": len(self.c.memories)}
 
+    def play_spotify(self, query: str) -> dict:
+        return {"ok": self.c.play_spotify(query)}
+
     def play_song(self, title: str) -> dict:
         ok = self.c.play_song(title)
         return {"ok": ok}

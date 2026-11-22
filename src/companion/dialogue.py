@@ -34,7 +34,7 @@ class Sentence:
         return bool(re.search(r"\w", self.text))
 
 
-ACTION_TAGS = ("dance",)
+ACTION_TAGS = ("dance", "spotify")
 
 
 def strip_tags(text: str) -> tuple[str, list[str]]:
