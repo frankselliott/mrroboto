@@ -46,7 +46,7 @@ def birthday_text(owner: str, birthday: str, today: date | None = None) -> str:
     age = nxt.year - y
     if days == 0:
         return f"Today is {owner}'s birthday! {owner} is {age} today. Make a big happy fuss and offer a birthday song."
-    if days <= 14:
+    if days <= 30:
         return f"{owner}'s birthday is in {days} day{'s' if days != 1 else ''} ({owner} will be {age})."
     return ""
 
