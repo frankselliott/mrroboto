@@ -30,6 +30,7 @@ from companion.behaviour import State
 from companion.config import Settings
 from companion.dialogue import Sentence, SentenceAssembler
 from companion.llm import LLM, Conversation, build_system_prompt, make_llm
+from companion.choreography import Planner, beat_hold, build_routines, estimate_bpm
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
@@ -700,8 +701,13 @@ class Companion:
         self.emit("transcript", {"role": "assistant", "text": f"♪ {song.title}", "partial": False})
         sr = SONG_RATE
         chunk = int(sr * CHUNK_SECONDS)
-        moves = behaviour.DANCE_MOVES
-        state = {"i": 0, "next": 0.0}
+        bpm = estimate_bpm(pcm, sr)
+        hold = beat_hold(bpm)
+        planner = Planner(build_routines(hold, self.settings.dance_floor_moves))
+        total = len(pcm) / sr
+        faces = (behaviour.FACE_HAPPY, behaviour.FACE_LAUGH)
+        state = {"next": 0.0, "face_at": 0.0, "face_i": 0, "routines": []}
+        self.emit("notice", {"message": f"Dancing at about {bpm:.0f} beats per minute"})
 
         def body():
             start = time.monotonic()
@@ -717,19 +723,24 @@ class Companion:
                 if cancel.is_set():
                     return
                 now = time.monotonic()
-                if now >= state["next"] and now >= self._arms_busy_until:
-                    steps = list(moves[state["i"] % len(moves)])
-                    state["i"] += 1
+                if now >= state["next"]:
+                    routine = planner.next(written / total if total else 0.0)
                     try:
-                        self.daemon.enqueue(steps)
-                        self._arms_busy_until = now + behaviour.steps_duration(steps) + 0.3
+                        self.daemon.enqueue(list(routine.steps))
+                        state["routines"].append(routine.name)
+                        self.emit("gesture", {"tag": f"dance: {routine.name}"})
                     except DaemonError:
                         pass
-                    state["next"] = now + behaviour.DANCE_INTERVAL
+                    # Next routine starts when this one has finished, plus one beat's rest.
+                    state["next"] = now + routine.duration + hold
+                if now >= state["face_at"]:
+                    state["face_i"] += 1
+                    self._apply_face(faces[state["face_i"] % 2])
+                    state["face_at"] = now + 8.0
                 yield pcm[i : i + chunk].tobytes()
                 written += len(pcm[i : i + chunk]) / sr
 
-        _log.info("dancing to %s (%.0fs)", song.title, len(pcm) / sr)
+        _log.info("dancing to %s (%.0fs, %.0f bpm, hold %.2fs)", song.title, total, bpm, hold)
         try:
             result = self.speak.stream_pcm(body(), sr)
             if not result.get("ok"):

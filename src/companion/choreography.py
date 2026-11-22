@@ -1,0 +1,174 @@
+"""Dance choreography: beat detection plus a library of multi-step routines on the beat.
+
+Everything here is composed from Carle's hardware-verified primitives and obeys its servo
+rules: one joint target changes per step, every hold is at least 0.5 s, canned ``0xB2``
+routines are fired once, never streamed. The daemon's own guard enforces the same floor
+underneath, so a mistake here would be slowed down rather than squeal the servos.
+
+Joint cheat-sheet (``pose:N`` holds): 1/2 left arm forward up/down, 3/4 right arm forward,
+5/6 left shoulder out/in, 7/8 right shoulder out/in, 9/10 left elbow up/down, 11/12 right
+elbow up/down. ``waist`` 1 leans left (spring-return), 2 upright. Canned: 25, 31-38 torso
+sways, 27 lean/bow, 19 arms home. Floor only: ``travel`` pivots (direction 3 vs 7 at low speed).
+"""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass
+
+import numpy as np
+
+MIN_HOLD = 0.5
+
+
+# --- beat detection -------------------------------------------------------------------------
+
+
+def estimate_bpm(pcm: np.ndarray, sr: int, lo: float = 70.0, hi: float = 170.0) -> float:
+    """Rough tempo from an onset-energy autocorrelation. Falls back to 110 if unsure."""
+    if len(pcm) < sr * 8:
+        return 110.0
+    x = pcm[: sr * 90].astype(np.float32)  # the first 90 s is plenty
+    hop = sr // 100  # 10 ms frames
+    n = len(x) // hop
+    env = np.sqrt(np.mean(x[: n * hop].reshape(n, hop) ** 2, axis=1))
+    onset = np.diff(env)
+    onset[onset < 0] = 0
+    onset -= onset.mean()
+    if not np.any(onset):
+        return 110.0
+    ac = np.correlate(onset, onset, mode="full")[len(onset) - 1 :]
+    min_lag, max_lag = int(100 * 60 / hi), int(100 * 60 / lo)
+    seg = ac[min_lag:max_lag]
+    if len(seg) == 0 or seg.max() <= 0:
+        return 110.0
+    lag = min_lag + int(np.argmax(seg))
+    bpm = 6000.0 / lag
+    # Prefer the danceable range: halve/double into [85, 150] when a multiple fits.
+    while bpm > 150 and bpm / 2 >= lo:
+        bpm /= 2
+    while bpm < 85 and bpm * 2 <= hi:
+        bpm *= 2
+    return float(round(bpm, 1))
+
+
+def beat_hold(bpm: float) -> float:
+    """One move per beat if the beat is slow enough for the servos, else every second beat."""
+    beat = 60.0 / max(bpm, 1.0)
+    while beat < MIN_HOLD:
+        beat *= 2
+    return round(beat, 3)
+
+
+# --- routines -------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Routine:
+    name: str
+    steps: list[dict]
+    energy: int  # 1 calm .. 3 wild
+    floor: bool = False  # needs floor space (moves the robot)
+
+    @property
+    def duration(self) -> float:
+        total = 0.0
+        for s in self.steps:
+            if "pose" in s or "waist" in s or "travel" in s:
+                total += float(s.get("hold", MIN_HOLD))
+            elif "pause" in s:
+                total += float(s["pause"])
+            elif "gesture" in s:
+                total += 1.2
+        return total
+
+
+def _p(n: int, hold: float) -> dict:
+    return {"pose": n, "hold": hold}
+
+
+def _w(v: int, hold: float) -> dict:
+    return {"waist": v, "hold": hold}
+
+
+def _g(n: int) -> dict:
+    return {"gesture": n}
+
+
+def _pause(seconds: float) -> dict:
+    return {"pause": seconds}
+
+
+def _turn(direction: int, hold: float) -> dict:
+    # Low speed = pivot roughly in place (docs/movement-vocabulary.md); short holds keep it small.
+    return {"travel": {"direction": direction, "speed": 40, "mode": 1, "hold": hold}}
+
+
+def build_routines(hold: float, floor_moves: bool = False) -> list[Routine]:
+    """The routine library, with every hold scaled to the song's beat."""
+    h = max(MIN_HOLD, hold)
+    h2 = h * 2
+    r: list[Routine] = [
+        Routine("arms up pump", [
+            _p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h),
+            _p(10, h), _p(12, h), _p(2, h), _p(4, h),
+        ], 3),
+        Routine("windmill", [
+            _p(5, h), _p(7, h), _p(1, h), _p(3, h), _pause(h), _p(6, h), _p(8, h), _p(2, h), _p(4, h),
+        ], 2),
+        Routine("disco point", [
+            _p(3, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(4, h),
+            _p(1, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(2, h),
+        ], 3),
+        Routine("shoulder shimmy", [
+            _p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(5, h), _p(6, h), _p(7, h), _p(8, h),
+        ], 2),
+        Routine("Y M C A", [
+            _p(5, h), _p(1, h), _p(7, h), _p(3, h), _pause(h2), _p(6, h), _p(8, h), _p(2, h), _p(4, h),
+        ], 2),
+        Routine("clap along", [
+            _p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h),
+            _p(2, h), _p(4, h),
+        ], 2),
+        Routine("waist wiggle", [_w(1, h), _w(2, h), _w(1, h), _w(2, h), _w(1, h), _w(2, h)], 1),
+        Routine("robot wave", [
+            _p(1, h), _p(9, h), _p(7, h), _pause(h), _p(10, h), _p(9, h), _p(10, h), _p(8, h), _p(2, h),
+        ], 2),
+        Routine("torso groove", [_g(25), _pause(h2), _g(31), _pause(h2), _g(33)], 1),
+        Routine("big sway", [_g(35), _pause(h2), _g(37), _pause(h2), _g(25)], 1),
+        Routine("flex and bow", [_p(5, h), _p(9, h), _pause(h), _p(10, h), _p(6, h), _g(27)], 1),
+        Routine("wave hello", [_p(3, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(4, h)], 1),
+        Routine("open arms", [_p(5, h), _p(7, h), _pause(h2), _w(1, h), _w(2, h), _p(6, h), _p(8, h)], 2),
+        Routine("fist pumps", [
+            _p(1, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(2, h),
+            _p(3, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(4, h),
+        ], 3),
+    ]
+    if floor_moves:
+        r += [
+            Routine("twist on the spot", [
+                _p(5, h), _p(7, h), _turn(3, h), _turn(7, h), _turn(3, h), _turn(7, h), _p(6, h), _p(8, h),
+            ], 3, floor=True),
+            Routine("spin around", [_turn(3, h2 * 2), _pause(h), _g(25)], 3, floor=True),
+        ]
+    return r
+
+
+class Planner:
+    """Pick the next routine: no immediate repeats, energy rises through the song."""
+
+    def __init__(self, routines: list[Routine], seed: int | None = None):
+        self.routines = routines
+        self._rng = random.Random(seed)
+        self._last: str | None = None
+        self.count = 0
+
+    def next(self, progress: float) -> Routine:
+        """``progress`` is 0..1 through the song; favour calm early and wild later."""
+        target = 1 if progress < 0.25 else (2 if progress < 0.6 else 3)
+        pool = [r for r in self.routines if r.name != self._last]
+        weights = [3.0 if r.energy == target else (1.5 if abs(r.energy - target) == 1 else 0.5) for r in pool]
+        choice = self._rng.choices(pool, weights=weights, k=1)[0]
+        self._last = choice.name
+        self.count += 1
+        return choice

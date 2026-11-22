@@ -90,6 +90,7 @@ class Settings:
     idle_nudge_max: int = 2  # at most this many nudges per silence
     # music
     music_dir: str = "~/Downloads/Robot songs"
+    dance_floor_moves: bool = False  # allow turns/steps while dancing (floor only, never a table)
     # privacy / debug
     keep_audio: bool = False
 
