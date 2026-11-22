@@ -92,6 +92,7 @@ def test_idle_nudge_only_when_ready_and_limited():
     initiated = []
     c._initiate = lambda kind: initiated.append(kind)
     c._tts_ready = True
+    c.llm = object()  # any provider; never called here
     c.settings.idle_nudge_minutes = 0.0001
     c.settings.idle_nudge_max = 2
     c._last_interaction -= 60
