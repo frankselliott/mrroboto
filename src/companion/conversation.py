@@ -38,7 +38,7 @@ from companion.choreography import (
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
-from companion.spotify import SpotifyApp, SpotifySearch
+from companion.spotify import SpotifyApp, SpotifySearch, SpotifyUser
 from companion.stt import STT, make_stt
 from companion.tts import TTS, make_tts
 
@@ -440,6 +440,46 @@ class Companion:
     def spotify_ready(self) -> bool:
         return bool(self.settings.spotify_enabled and self.secrets.get("SPOTIFY_CLIENT_ID") and self.secrets.get("SPOTIFY_CLIENT_SECRET"))
 
+    def spotify_user(self) -> SpotifyUser | None:
+        """The signed-in Spotify Connect client, if the account has been connected."""
+        token = self.secrets.get("SPOTIFY_REFRESH_TOKEN")
+        if not token or not self.secrets.get("SPOTIFY_CLIENT_ID"):
+            return None
+        if getattr(self, "_spotify_user", None) is None or self._spotify_user.refresh_token != token:
+            from companion import config as _config  # noqa: PLC0415
+
+            def persist(new_token: str) -> None:
+                _config.set_secret("SPOTIFY_REFRESH_TOKEN", new_token)
+                self.secrets["SPOTIFY_REFRESH_TOKEN"] = new_token
+
+            self._spotify_user = SpotifyUser(self.secrets["SPOTIFY_CLIENT_ID"], token, on_refresh=persist)
+        return self._spotify_user
+
+    def connect_spotify(self) -> dict:
+        """Run the one-time Spotify sign-in (opens the browser); returns the resulting status."""
+        import webbrowser  # noqa: PLC0415
+
+        from companion import config as _config  # noqa: PLC0415
+
+        cid = self.secrets.get("SPOTIFY_CLIENT_ID")
+        if not cid:
+            return {"ok": False, "error": "Save the Spotify client ID first"}
+        user = SpotifyUser(cid)
+        try:
+            ok = user.login(webbrowser.open)
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)}
+        if not ok:
+            return {"ok": False, "error": "Sign-in did not complete"}
+        _config.set_secret("SPOTIFY_REFRESH_TOKEN", user.refresh_token)
+        self.secrets["SPOTIFY_REFRESH_TOKEN"] = user.refresh_token
+        self._spotify_user = None
+        try:
+            user.pick_device()
+            return {"ok": True, "device": user.device_name}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": True, "device": "", "warning": str(exc)}
+
     def play_spotify(self, query: str) -> bool:
         if not self.running or not self.spotify_ready() or not query.strip():
             return False
@@ -461,8 +501,12 @@ class Companion:
             return
         cancel = threading.Event()
         self._spotify_cancel = cancel
+        user = self.spotify_user()
         try:
-            self.spotify_app.play(track.uri)
+            if user is not None:
+                user.play(track.uri)  # Spotify Connect, on this Mac
+            else:
+                self.spotify_app.play(track.uri)  # fallback: drive the desktop app directly
         except Exception as exc:  # noqa: BLE001
             self.emit("error", {"message": f"Could not start Spotify: {exc}"})
             return
@@ -480,12 +524,22 @@ class Companion:
         try:
             # Give the app a moment to start, then dance until it stops playing.
             time.sleep(1.5)
+            idle_polls = 0
             while not cancel.is_set() and self.running:
-                state = self.spotify_app.state()
-                if state not in ("playing", "unknown"):
-                    break
                 now = time.monotonic()
-                position = self.spotify_app.position() or (now - start)
+                if user is not None:
+                    try:
+                        st = user.state()
+                    except Exception as exc:  # noqa: BLE001
+                        _log.debug("spotify state: %s", exc)
+                        st = {"playing": True, "position": now - start, "track": ""}
+                    playing, position = st["playing"], st["position"] or (now - start)
+                else:
+                    playing = self.spotify_app.state() in ("playing", "unknown")
+                    position = self.spotify_app.position() or (now - start)
+                idle_polls = 0 if playing else idle_polls + 1
+                if idle_polls >= 3 and now - start > 6:
+                    break  # it has really stopped (track over, or paused by someone)
                 if now >= next_move:
                     routine = planner.next(min(1.0, position / total))
                     try:
@@ -503,7 +557,7 @@ class Companion:
                 time.sleep(0.5)
         finally:
             if cancel.is_set():
-                self.spotify_app.pause()
+                (user.pause if user is not None else self.spotify_app.pause)()
             try:
                 self.daemon.clear()
                 self.daemon.enqueue(behaviour.home_items())
@@ -590,7 +644,8 @@ class Companion:
         self._party_cancel.set()
         if not self._spotify_cancel.is_set():
             self._spotify_cancel.set()
-            threading.Thread(target=self.spotify_app.pause, daemon=True).start()
+            user = self.spotify_user()
+            threading.Thread(target=(user.pause if user is not None else self.spotify_app.pause), daemon=True).start()
         self.speak.stop()
         try:
             self.daemon.clear()

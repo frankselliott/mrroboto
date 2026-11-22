@@ -52,6 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     listen = sub.add_parser("listen", help="record N seconds from the mic and transcribe")
     listen.add_argument("--seconds", type=float, default=4.0)
     sub.add_parser("headless", help="run the companion with no window (hands-free), until Ctrl-C")
+    sub.add_parser("spotify-login", help="connect the Spotify account (opens the browser once)")
     args = p.parse_args(argv)
     _setup_logging(args.verbose)
 
@@ -75,6 +76,24 @@ def main(argv: list[str] | None = None) -> int:
             config.save_settings(settings)
             print(f"saved robot address {settings.robot_address}")
         return 0 if found else 1
+
+    if args.cmd == "spotify-login":
+        import webbrowser
+
+        from companion.spotify import SpotifyUser
+
+        cid = secrets.get("SPOTIFY_CLIENT_ID")
+        if not cid:
+            print("save the Spotify client ID in Settings first", file=sys.stderr)
+            return 1
+        user = SpotifyUser(cid)
+        print("opening the browser for Spotify sign-in…", flush=True)
+        if not user.login(webbrowser.open):
+            print("sign-in did not complete", file=sys.stderr)
+            return 1
+        config.set_secret("SPOTIFY_REFRESH_TOKEN", user.refresh_token)
+        print("connected; devices:", [d.get("name") for d in user.devices()])
+        return 0
 
     if args.cmd in ("say", "turn", "listen", "headless"):
         from companion.conversation import Companion

@@ -123,6 +123,19 @@ class Api:
         self.c.save_memories((text or "").splitlines())
         return {"count": len(self.c.memories)}
 
+    def connect_spotify(self) -> dict:
+        return self.c.connect_spotify()
+
+    def spotify_status(self) -> dict:
+        user = self.c.spotify_user()
+        if user is None:
+            return {"connected": False}
+        try:
+            devs = user.devices()
+            return {"connected": True, "devices": [d.get("name") for d in devs]}
+        except Exception as exc:  # noqa: BLE001
+            return {"connected": True, "error": str(exc)}
+
     def play_spotify(self, query: str) -> dict:
         return {"ok": self.c.play_spotify(query)}
 

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CARLE_DIR = ROOT / "carle"
 MODELS_DIR = ROOT / "models"
 
-SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET")
+SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY", "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET", "SPOTIFY_REFRESH_TOKEN")
 
 def _bundled_personality(name: str) -> str:
     path = Path(__file__).parent / "personalities" / f"{name}.md"
