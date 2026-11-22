@@ -334,6 +334,19 @@ def song_routines(h: float) -> dict[str, Routine]:
         Routine("beep boop", [_p(1, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(2, h)], 2),
         # Pinkfong — T-Rex
         Routine("dino wake", [_w(1, H), _w(2, H), _p(1, H), _p(9, H), _pause(H), _p(10, H), _p(2, H)], 1),
+        # Birthday songs
+        Routine("birthday clap", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(2, h), _p(4, h)], 2),
+        Routine("candles", [_p(1, H), _p(3, H), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _pause(H), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 2),
+        Routine("make a wish", [_p(1, h), _p(9, h), _pause(H * 2), _p(10, h), _p(2, h), _p(1, h), _p(3, h), _pause(h), _p(2, h), _p(4, h)], 1),
+        Routine("confetti", [_p(1, h), _p(3, h), _p(5, h), _p(7, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(6, h), _p(8, h), _p(2, h), _p(4, h), _g(25)], 3),
+        # Baby Shark (ready for when the file arrives)
+        Routine("baby chomp", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h)], 2),
+        Routine("mommy chomp", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 2),
+        Routine("daddy chomp", [_p(5, h), _p(7, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(6, h), _p(8, h)], 3),
+        Routine("grandma shark", [_p(1, H), _p(9, H), _p(10, H), _p(9, H), _p(10, H), _p(2, H)], 1),
+        Routine("lets go hunt", [_p(1, h), _p(3, h), _pause(h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _p(2, h), _p(4, h)], 2),
+        Routine("run away", [_p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(1, h), _p(2, h), _p(3, h), _p(4, h), _w(1, h), _w(2, h)], 3),
+        Routine("safe at last", [_p(5, h), _p(7, h), _pause(H), _p(6, h), _p(8, h), _g(27)], 1),
         # Tung Tung Tung Sahur
         Routine("tung drum", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _pause(h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h)], 3),
     ]
@@ -371,6 +384,37 @@ class SongScript:
 T, K, P, L, H = FACE_TALK, FACE_THINK, FACE_HAPPY, FACE_LAUGH, FACE_SAD  # short names
 
 SCRIPTS: tuple[SongScript, ...] = (
+    SongScript(("confetti",), "Robot Happy Birthday Song", (
+        Section(0, 12, ("systems check", "servo tilt", "make a wish"), (K, P), "power up", "the robots arrive"),
+        Section(12, 28, ("birthday clap", "wave hello", "candles"), (P, T), "birthday clap", "happy birthday to you"),
+        Section(28, 44, ("arms up pump", "confetti", "birthday clap"), (L, P), "confetti", "confetti!"),
+        Section(44, 400, ("make a wish", "open arms", "flex and bow"), (P, L), "make a wish", "make a wish"),
+    ), 3.0),
+    SongScript(("quantum",), "Birthday Robot Dance Song", (
+        Section(0, 20, ("systems check", "servo tilt", "the robot"), (K, T), "power up", "a birthday robot switches on"),
+        Section(20, 52, ("robot arms", "beep boop", "birthday clap", "tin man"), (T, P), "beep boop", "robot verse"),
+        Section(52, 70, ("arms up pump", "confetti", "candles"), (L, P), "confetti", "party chorus"),
+        Section(70, 84, ("the robot", "tin man", "make a wish"), (T, K), None, "watch out!"),
+        Section(84, 120, ("arms up pump", "open arms", "jazz hands", "birthday clap"), (L, P), "confetti", "big party"),
+        Section(120, 400, ("make a wish", "flex and bow", "power down"), (P, K), "make a wish", "blow out the candles"),
+    ), 3.0),
+    SongScript(("birthday",), "Happy Birthday", (
+        Section(0, 15, ("wave hello", "candles"), (P, T), "birthday clap", "happy birthday"),
+        Section(15, 45, ("birthday clap", "arms up pump", "confetti", "open arms"), (L, P), "confetti", "celebrate"),
+        Section(45, 400, ("make a wish", "flex and bow", "birthday clap"), (P, L), "make a wish", "make a wish"),
+    ), 3.0),
+    SongScript(("baby shark", "shark"), "Pinkfong — Baby Shark", (
+        Section(0, 6, ("servo tilt",), (P,), None, "intro"),
+        Section(6, 22, ("baby chomp",), (P, L), "baby chomp", "baby shark"),
+        Section(22, 37, ("mommy chomp",), (P,), "mommy chomp", "mommy shark"),
+        Section(37, 52, ("daddy chomp",), (L, P), "daddy chomp", "daddy shark"),
+        Section(52, 67, ("grandma shark",), (P, K), "grandma shark", "grandma shark"),
+        Section(67, 82, ("grandma shark", "tai chi"), (K, P), "grandma shark", "grandpa shark"),
+        Section(82, 97, ("lets go hunt",), (K, H), "lets go hunt", "let's go hunt"),
+        Section(97, 112, ("run away", "flail"), (L,), "run away", "run away!"),
+        Section(112, 127, ("safe at last", "open arms"), (P,), "safe at last", "safe at last"),
+        Section(127, 400, ("flex and bow", "wave hello"), (P, L), "flex and bow", "it's the end"),
+    ), 3.0),
     SongScript(("mr roboto", "styx"), "Styx — Mr Roboto", (
         Section(0, 44, ("the robot", "servo tilt", "systems check"), (K, T), "domo bow", "robotic intro chant: slow, mechanical, bowing"),
         Section(44, 90, ("robot arms", "tin man", "the robot"), (T, K), "power up", "first verse"),
