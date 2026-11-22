@@ -70,6 +70,7 @@ class Api:
 
     def options(self) -> dict:
         return {
+            "songs": self.c.song_titles(),
             "personalities": list(config.PERSONALITIES) + ["custom"],
             "kokoro_voices": list(KOKORO_VOICES),
             "openai_voices": list(OPENAI_VOICES),
@@ -114,6 +115,10 @@ class Api:
 
     def reset_conversation(self) -> None:
         self.c.reset_conversation()
+
+    def play_song(self, title: str) -> dict:
+        ok = self.c.play_song(title)
+        return {"ok": ok}
 
     # --- settings -------------------------------------------------------------------------
 

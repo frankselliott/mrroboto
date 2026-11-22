@@ -39,6 +39,7 @@ class State(Enum):
     LISTENING = "listening"
     THINKING = "thinking"
     SPEAKING = "speaking"
+    DANCING = "dancing"
 
 
 #: The LED face held in each conversational state.
@@ -47,6 +48,7 @@ STATE_FACES: dict[State, int] = {
     State.LISTENING: FACE_HAPPY,
     State.THINKING: FACE_THINKING,
     State.SPEAKING: FACE_TALKING,
+    State.DANCING: FACE_HAPPY,
 }
 
 
@@ -90,6 +92,9 @@ def _sum_hold(steps: list[dict]) -> float:
         elif "gesture" in s:
             total += 1.0  # canned animations take about a second
     return total
+
+
+steps_duration = _sum_hold
 
 
 def _g(tag: str, description: str, steps: list[dict], face: int | None = None) -> Gesture:
@@ -137,6 +142,23 @@ GESTURES: dict[str, Gesture] = {
 
 #: Tags the model is told about, in the order they are described in the system prompt.
 TAG_NAMES: tuple[str, ...] = tuple(GESTURES)
+
+#: Dance moves cycled while music plays: Carle's canned torso routines (25, 31-38 sway
+#: variants, 27 lean/bow — never 28-30, which turn the robot) and a few arm gestures.
+DANCE_MOVES: tuple[list[dict], ...] = (
+    [_gesture(25)],
+    _CELEBRATE,
+    [_gesture(31)],
+    _ARMS_WIDE,
+    [_gesture(33)],
+    _WAVE,
+    [_gesture(27)],
+    [_gesture(35)],
+    _NOD,
+    [_gesture(37)],
+)
+#: Seconds between dance moves (servo-safe; each move is 1-4 s long itself).
+DANCE_INTERVAL = 3.0
 
 
 def describe_for_prompt() -> str:

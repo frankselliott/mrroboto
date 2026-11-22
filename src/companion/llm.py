@@ -30,9 +30,28 @@ class LLM(Protocol):
     def stream(self, system: str, messages: list[Message]) -> Iterator[str]: ...
 
 
-def build_system_prompt(settings: Settings) -> str:
-    who = f" The person you are talking to is called {settings.user_name}." if settings.user_name else ""
-    return f"""{settings.personality_text()}{who}
+def build_system_prompt(settings: Settings, song_titles: list[str] | None = None) -> str:
+    who = f" The person you are talking to is usually called {settings.user_name}." if settings.user_name else ""
+    owner = ""
+    if settings.owner_name:
+        owner = (
+            f"\n\nYou are {settings.owner_name}'s robot: you belong to {settings.owner_name}, you are proud "
+            f"of it, and you say so if asked who you belong to."
+        )
+        if settings.owner_profile.strip():
+            owner += f" Everything you know about {settings.owner_name}:\n{settings.owner_profile.strip()}"
+    songs = ""
+    if song_titles:
+        listing = "\n".join(f"- {t}" for t in song_titles[:40])
+        songs = f"""
+
+You can play music and dance to it. When asked to play a song, dance, or when a party is
+clearly wanted, reply with one short sentence and put the tag [dance:<exact title>] at the END
+of that sentence, using a title from this list exactly as written:
+{listing}
+If the request does not match a title, say which songs you do have instead. Never invent titles.
+While the music plays you dance on your own; the person can stop you by talking to you."""
+    return f"""You are {settings.robot_name}, a small robot companion with LED eyes and two little arms. {settings.personality_text()}{who}{owner}
 
 You are a physical robot standing in the room, not a chat window. Your replies are spoken aloud
 through your own speaker, so:
@@ -51,7 +70,7 @@ no reason. Only these tags exist:
 
 Examples: "[wave] Hello! Good to see you." / "[think] Hmm, let me think about that." /
 "[celebrate] That's brilliant news!" / "[goodbye] Bye for now, talk soon."
-Never invent other tags and never describe your movements in words."""
+Never invent other tags and never describe your movements in words.{songs}"""
 
 
 class Conversation:

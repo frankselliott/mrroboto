@@ -116,10 +116,22 @@
     <label>Speed <input type="number" id="s-tts_speed" step="0.05" min="0.6" max="1.5"></label>
 
     <h2>Personality</h2>
+    <label>Robot's name <input type="text" id="s-robot_name"></label>
     <label>Preset <select id="s-personality"></select></label>
     <label>Custom personality <textarea id="s-personality_custom" placeholder="Used when preset is 'custom'"></textarea></label>
-    <label>Your name <input type="text" id="s-user_name"></label>
-    <label>Hands-free sensitivity <input type="number" id="s-vad_threshold" step="0.002" min="0.004" max="0.08"></label>
+    <label>Owner's name (whose robot it is) <input type="text" id="s-owner_name"></label>
+    <label>About the owner <textarea id="s-owner_profile" placeholder="Everything the robot should know: age, likes, pets, family, school, favourite things..."></textarea></label>
+    <label>Your name (the person talking) <input type="text" id="s-user_name"></label>
+    <label>Pronunciations (one per line, word=how to say it) <textarea id="s-pronunciations" placeholder="Augie=Auggie"></textarea></label>
+
+    <h2>Hands-free</h2>
+    <label class="toggle"><input type="checkbox" id="s-wake_word_enabled"> Require the wake word</label>
+    <label>Wake word <input type="text" id="s-wake_word"></label>
+    <label>Sensitivity <input type="number" id="s-vad_threshold" step="0.002" min="0.004" max="0.08"></label>
+
+    <h2>Music</h2>
+    <label>Songs folder <input type="text" id="s-music_dir"></label>
+    <div class="hint" id="songs-found"></div>
 
     <div class="row">
       <button id="save" class="primary">Save settings</button>
@@ -136,7 +148,7 @@
       <label class="toggle"><input type="checkbox" id="handsfree"> Hands-free</label>
       <span class="hint">Hold the button or the space bar while you speak. Press again to interrupt.</span></div>
     <div class="meter"><div id="meter"></div></div>
-    <div class="typed"><input type="text" id="typed" placeholder="Or type a message and press Enter"><button id="send">Send</button></div>
+    <div class="typed"><input type="text" id="typed" placeholder="Or type a message and press Enter"><button id="send">Send</button><select id="song"></select><button id="dance" title="Play a song and dance">Dance</button></div>
   </div>
   <button id="stop" class="danger" title="Stop all movement and audio now">STOP</button>
 </footer>
@@ -182,6 +194,7 @@ window.onCompanionEvent = (event, data) => {
   switch (event) {
     case 'status': renderStatus(data); break;
     case 'state': $('state').textContent = data.state; if (data.state !== 'listening') setTalking(false); break;
+    case 'wake': addNote(data.message); break;
     case 'level': $('meter').style.width = Math.min(100, Math.round(data.rms * 1200)) + '%'; break;
     case 'transcript': addMsg(data.role, data.text, data.partial); break;
     case 'transcript_reset': $('transcript').innerHTML = ''; lastAssistantEl = null; break;
@@ -203,6 +216,10 @@ function fillSettings(s, secrets) {
   $('l-base').style.display = s.llm_provider === 'openai_compatible' ? '' : 'none';
   refreshLists(s);
 }
+function renderSongs(songs) {
+  $('song').innerHTML = songs.map(t => `<option>${t}</option>`).join('');
+  $('songs-found').textContent = songs.length ? `${songs.length} song(s) found: ${songs.join(' · ')}` : 'No songs found in that folder';
+}
 function refreshLists(s) {
   const prov = $('s-llm_provider').value;
   $('models').innerHTML = (opts.llm_models?.[prov] || []).map(m => `<option>${m}</option>`).join('');
@@ -222,6 +239,7 @@ async function init() {
   opts = st.options;
   $('s-personality').innerHTML = opts.personalities.map(p => `<option>${p}</option>`).join('');
   $('s-mic_device').innerHTML = opts.mics.map(m => `<option>${m}</option>`).join('');
+  renderSongs(opts.songs || []);
   fillSettings(st.settings, st.secrets);
   renderStatus(st.status);
   for (const m of st.transcript) addMsg(m.role, m.content.replace(/\[[a-z_]+\]\s*/g, ''), false);
@@ -234,7 +252,8 @@ $('stop').onclick = () => { setTalking(false); api.emergency_stop(); };
 $('handsfree').onchange = (e) => api.set_hands_free(e.target.checked);
 $('reset').onclick = () => api.reset_conversation();
 $('logs').onclick = () => api.open_logs();
-$('save').onclick = async () => { const r = await api.save_settings(collectSettings()); fillSettings(r.settings, (await api.get_state()).secrets); renderStatus(r.status); addNote('Settings saved'); };
+$('save').onclick = async () => { const r = await api.save_settings(collectSettings()); const st = await api.get_state(); opts = st.options; fillSettings(r.settings, st.secrets); renderSongs(opts.songs || []); renderStatus(r.status); addNote('Settings saved'); };
+$('dance').onclick = async () => { const t = $('song').value; if (!t) return; const r = await api.play_song(t); if (!r.ok) addNote('Could not play ' + t, 'error'); };
 $('scan').onclick = async () => { $('scan').disabled = true; $('scan').textContent = 'Scanning…'; try { const r = await api.scan(); if (r.found.length) { $('s-robot_address').value = r.found[0].address; addNote(`Found ${r.found.map(f => f.name).join(', ')}`); } else addNote('No robot found. Is it switched on and nearby?', 'error'); } finally { $('scan').disabled = false; $('scan').textContent = 'Scan'; } };
 document.querySelectorAll('.savekey').forEach(b => b.onclick = async () => { const k = b.dataset.key; const v = $('k-' + k).value; const st = await api.set_secret(k, v); $('k-' + k).value = ''; for (const [kk, vv] of Object.entries(st)) $('st-' + kk).textContent = vv ? 'set ✓' : 'not set'; addNote(v ? `${k} saved` : `${k} cleared`); });
 $('s-llm_provider').onchange = () => refreshLists(collectSettings());

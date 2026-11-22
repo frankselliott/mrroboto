@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from companion.behaviour import GESTURES
 
-_TAG_RE = re.compile(r"\[([a-zA-Z_]+)\]")
+_TAG_RE = re.compile(r"\[([a-zA-Z_]+)(?::\s*([^\]]+?)\s*)?\]")
 # A sentence ends at . ! ? (optionally followed by closing quotes/brackets) and whitespace,
 # or at a newline. We deliberately do not split on abbreviations' dots mid-sentence when no
 # whitespace follows, e.g. "3.14" or "e.g.".
@@ -27,19 +27,37 @@ _SENTENCE_END_RE = re.compile(r'([.!?]+["\')\]]*)(\s+|$)|\n+')
 class Sentence:
     text: str
     tags: list[str] = field(default_factory=list)
+    actions: list[tuple[str, str]] = field(default_factory=list)  # parametrised tags, e.g. ("dance", "Happy")
 
     @property
     def speakable(self) -> bool:
         return bool(re.search(r"\w", self.text))
 
 
+ACTION_TAGS = ("dance",)
+
+
 def strip_tags(text: str) -> tuple[str, list[str]]:
     """Remove every ``[tag]``; return the clean text and the approved tags found, in order."""
-    tags = [m.group(1).lower() for m in _TAG_RE.finditer(text)]
+    clean, tags, _actions = strip_all(text)
+    return clean, tags
+
+
+def strip_all(text: str) -> tuple[str, list[str], list[tuple[str, str]]]:
+    """Like ``strip_tags`` but also returns parametrised action tags such as ``[dance:Happy]``."""
+    tags: list[str] = []
+    actions: list[tuple[str, str]] = []
+    for m in _TAG_RE.finditer(text):
+        name = m.group(1).lower()
+        arg = (m.group(2) or "").strip()
+        if name in ACTION_TAGS and arg:
+            actions.append((name, arg))
+        elif name in GESTURES:
+            tags.append(name)
     clean = _TAG_RE.sub(" ", text)
     clean = re.sub(r"[ \t]+", " ", clean)
     clean = re.sub(r" +([,.!?;:])", r"\1", clean).strip()
-    return clean, [t for t in tags if t in GESTURES]
+    return clean, tags, actions
 
 
 class SentenceAssembler:
@@ -77,10 +95,10 @@ class SentenceAssembler:
 
     @staticmethod
     def _to_sentence(piece: str) -> Sentence | None:
-        text, tags = strip_tags(piece)
-        if not text and not tags:
+        text, tags, actions = strip_all(piece)
+        if not text and not tags and not actions:
             return None
-        return Sentence(text, tags)
+        return Sentence(text, tags, actions)
 
 
 def split_sentences(text: str) -> list[Sentence]:

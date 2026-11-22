@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -29,6 +30,8 @@ from companion.behaviour import State
 from companion.config import Settings
 from companion.dialogue import Sentence, SentenceAssembler
 from companion.llm import LLM, Conversation, build_system_prompt, make_llm
+from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
+from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
 from companion.stt import STT, make_stt
 from companion.tts import TTS, make_tts
@@ -78,6 +81,9 @@ class Companion:
         self._stop_poll = threading.Event()
         self.last_status: dict = {}
         self.provider_errors: dict[str, str] = {}
+        self.library = Library(settings.music_dir)
+        self._wake_until = 0.0
+        self._dance_cancel = threading.Event()
 
     # --- lifecycle ------------------------------------------------------------------------
 
@@ -153,6 +159,8 @@ class Companion:
         self.settings = settings
         self.secrets = secrets
         self.conversation.max_turns = settings.max_history_turns
+        if settings.music_dir != old.music_dir:
+            self.library = Library(settings.music_dir)
         if self.running:
             if self.processes and settings.robot_address != old.robot_address:
                 self.processes.set_address(settings.robot_address)
@@ -269,8 +277,26 @@ class Companion:
 
     @property
     def busy(self) -> bool:
-        """True while a reply is being generated or spoken."""
-        return self.state in (State.THINKING, State.SPEAKING)
+        """True while a reply is being generated or spoken, or music is playing."""
+        return self.state in (State.THINKING, State.SPEAKING, State.DANCING)
+
+    def song_titles(self) -> list[str]:
+        self.library.rescan()
+        return self.library.titles()
+
+    def play_song(self, title: str) -> bool:
+        """Play a song from the library through the robot and dance to it."""
+        if not self.running or self.library.find(title) is None:
+            return False
+        if self.busy:
+            self.interrupt(reason="new song")
+        threading.Thread(target=self._dance, args=(title,), daemon=True).start()
+        return True
+
+    def _pronounce(self, text: str) -> str:
+        for word, spoken in self.settings.pronunciation_map().items():
+            text = re.sub(r"\b" + re.escape(word) + r"\b", spoken, text)
+        return text
 
     def press_talk(self) -> None:
         if not self.running or not self.mic:
@@ -319,6 +345,7 @@ class Companion:
         turn = self._turn
         if turn:
             turn.cancel.set()
+        self._dance_cancel.set()
         self.speak.stop()
         try:
             self.daemon.clear()
@@ -351,13 +378,13 @@ class Companion:
     # --- the turn -------------------------------------------------------------------------
 
     def _on_hands_free_utterance(self, audio: np.ndarray) -> None:
-        if self.state in (State.SPEAKING, State.THINKING):
+        if self.state in (State.SPEAKING, State.THINKING, State.DANCING):
             # Barge-in: the user spoke while we were busy (mic is muted during speech, so this
             # only fires in the thinking gap) — treat it as an interruption.
             self.interrupt(reason="barge-in")
-        threading.Thread(target=self._handle_utterance, args=(audio,), daemon=True).start()
+        threading.Thread(target=self._handle_utterance, args=(audio, True), daemon=True).start()
 
-    def _handle_utterance(self, audio: np.ndarray) -> None:
+    def _handle_utterance(self, audio: np.ndarray, hands_free: bool = False) -> None:
         if self.stt is None:
             self.emit("error", {"message": "No speech-to-text provider is configured"})
             return
@@ -383,6 +410,22 @@ class Companion:
             self.emit("notice", {"message": "I didn't catch that"})
             self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
             return
+        if hands_free and self.settings.wake_word_enabled:
+            matched, rest = split_wake(text, self.settings.wake_word)
+            window_open = time.monotonic() < self._wake_until
+            if not matched and not window_open:
+                _log.info("ignored, no wake word: %r", text)
+                self._set_state(State.LISTENING)
+                return
+            if matched and not rest:
+                # Just the name: acknowledge and take the next utterance as the question.
+                self._wake_until = time.monotonic() + self.settings.wake_window_seconds
+                self.emit("wake", {"message": f"{self.settings.wake_word} is listening…"})
+                self._say_short("Yes?")
+                self._set_state(State.LISTENING)
+                return
+            text = rest if matched else text
+            self._wake_until = 0.0
         self.emit("transcript", {"role": "user", "text": text})
         self._run_turn(text)
 
@@ -407,7 +450,7 @@ class Companion:
         def produce_text() -> None:
             assembler = SentenceAssembler()
             try:
-                for chunk in self.llm.stream(build_system_prompt(self.settings), self.conversation.messages):
+                for chunk in self.llm.stream(build_system_prompt(self.settings, self.library.titles()), self.conversation.messages):
                     if turn.cancel.is_set():
                         break
                     turn.raw += chunk
@@ -434,7 +477,7 @@ class Companion:
                     else:
                         t = time.monotonic()
                         try:
-                            pcm = self.tts.synthesize(s.text)
+                            pcm = self.tts.synthesize(self._pronounce(s.text))
                         except Exception as exc:  # noqa: BLE001
                             _log.exception("tts error")
                             self.emit("error", {"message": f"Voice: {exc}"})
@@ -460,6 +503,7 @@ class Companion:
 
         # The speaking stage runs here: the HTTP body generator pulls from pcm_q.
         first_audio_at: float | None = None
+        requested_actions: list[tuple[str, str]] = []
 
         def body(first_item):
             nonlocal first_audio_at
@@ -485,6 +529,7 @@ class Companion:
                 if turn.cancel.is_set():
                     return
                 self._express(s)
+                requested_actions.extend(s.actions)
                 if s.speakable:
                     turn.spoken.append(s.text)
                     self.emit("transcript", {"role": "assistant", "text": " ".join(turn.spoken), "partial": True})
@@ -538,9 +583,104 @@ class Companion:
             elif unvoiced_text:
                 self.emit("transcript", {"role": "assistant", "text": unvoiced_text + " (robot speaker unavailable)", "partial": False})
             if self._turn is turn:
+                dance = next((arg for name, arg in requested_actions if name == "dance"), None)
+                if dance and not interrupted and self.running:
+                    self._dance(dance)  # keeps the mic muted and hands back when done
+                    return
                 time.sleep(UNMUTE_DELAY)
                 if self.mic:
                     self.mic.set_muted(False)
+                self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
+
+    # --- music ------------------------------------------------------------------------------
+
+    def _say_short(self, text: str) -> None:
+        """Voice a short phrase without the model (acknowledgements)."""
+        if self.tts is None:
+            return
+        try:
+            pcm = self.tts.synthesize(self._pronounce(text))
+        except Exception as exc:  # noqa: BLE001
+            self.emit("error", {"message": f"Voice: {exc}"})
+            return
+        if self.mic:
+            self.mic.set_muted(True)
+        self._set_state(State.SPEAKING)
+        try:
+            self.speak.stream_pcm(iter([pcm.tobytes()]), self.tts.samplerate)
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("short say failed: %s", exc)
+        finally:
+            time.sleep(0.2)
+            if self.mic:
+                self.mic.set_muted(False)
+
+    def _dance(self, title: str) -> None:
+        song = self.library.find(title)
+        if song is None:
+            self.emit("notice", {"message": f"No song matching '{title}'"})
+            return
+        cancel = threading.Event()
+        self._dance_cancel = cancel
+        try:
+            pcm = decode(song)
+        except Exception as exc:  # noqa: BLE001
+            self.emit("error", {"message": f"Could not decode {song.title}: {exc}"})
+            return
+        if self.mic:
+            self.mic.set_muted(True)
+        self._set_state(State.DANCING)
+        self.emit("transcript", {"role": "assistant", "text": f"♪ {song.title}", "partial": False})
+        sr = SONG_RATE
+        chunk = int(sr * CHUNK_SECONDS)
+        moves = behaviour.DANCE_MOVES
+        state = {"i": 0, "next": 0.0}
+
+        def body():
+            start = time.monotonic()
+            written = 0.0
+            for i in range(0, len(pcm), chunk):
+                if cancel.is_set():
+                    return
+                while not cancel.is_set():
+                    ahead = written - (time.monotonic() - start)
+                    if ahead <= LEAD:
+                        break
+                    time.sleep(min(ahead - LEAD, 0.1))
+                if cancel.is_set():
+                    return
+                now = time.monotonic()
+                if now >= state["next"] and now >= self._arms_busy_until:
+                    steps = list(moves[state["i"] % len(moves)])
+                    state["i"] += 1
+                    try:
+                        self.daemon.enqueue(steps)
+                        self._arms_busy_until = now + behaviour.steps_duration(steps) + 0.3
+                    except DaemonError:
+                        pass
+                    state["next"] = now + behaviour.DANCE_INTERVAL
+                yield pcm[i : i + chunk].tobytes()
+                written += len(pcm[i : i + chunk]) / sr
+
+        _log.info("dancing to %s (%.0fs)", song.title, len(pcm) / sr)
+        try:
+            result = self.speak.stream_pcm(body(), sr)
+            if not result.get("ok"):
+                self.emit("error", {"message": f"Speaker: {result.get('error')}"})
+        except Exception as exc:  # noqa: BLE001
+            self.emit("error", {"message": f"Speaker: {exc}"})
+        finally:
+            try:
+                self.daemon.clear()
+                self.daemon.enqueue(behaviour.home_items())
+            except DaemonError:
+                pass
+            self._arms_busy_until = 0.0
+            self._face = behaviour.FACE_CLEAR
+            time.sleep(UNMUTE_DELAY)
+            if self.mic:
+                self.mic.set_muted(False)
+            if self.running:
                 self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
 
     # --- robot expression -----------------------------------------------------------------

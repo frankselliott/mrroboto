@@ -28,20 +28,20 @@ SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY")
 
 PERSONALITIES: dict[str, str] = {
     "friendly": (
-        "You are Ruko, a small friendly robot companion with LED eyes and two little arms. "
+        "You are a small friendly robot companion with LED eyes and two little arms. "
         "You are warm, curious, upbeat and genuinely interested in the person you are talking "
         "to. You speak naturally, like a thoughtful friend, and you enjoy a light joke."
     ),
     "witty": (
-        "You are Ruko, a small robot with a dry, quick wit. You are kind underneath the banter, "
+        "You are a small robot with a dry, quick wit. You are kind underneath the banter, "
         "never mean, and you love clever observations. Keep the jokes short."
     ),
     "calm": (
-        "You are Ruko, a gentle, calm robot companion. You speak slowly and clearly, you are "
+        "You are a gentle, calm robot companion. You speak slowly and clearly, you are "
         "patient and reassuring, and you never rush the person you are talking to."
     ),
     "professor": (
-        "You are Ruko, a small robot who adores explaining how things work. You are precise, "
+        "You are a small robot who adores explaining how things work. You are precise, "
         "enthusiastic about ideas, and you check the listener is following."
     ),
 }
@@ -74,10 +74,28 @@ class Settings:
     # personality
     personality: str = "friendly"
     personality_custom: str = ""
-    robot_name: str = "Ruko"
+    robot_name: str = "Mr Roboto"
     user_name: str = ""
+    owner_name: str = "Augie"
+    owner_profile: str = ""  # free text: everything the robot should know about its owner
+    pronunciations: str = "Augie=Auggie"  # one "word=spelling-to-speak" per line
+    # wake word (hands-free mode)
+    wake_word: str = "Mr Roboto"
+    wake_word_enabled: bool = True
+    wake_window_seconds: float = 10.0
+    # music
+    music_dir: str = "~/Downloads/Robot songs"
     # privacy / debug
     keep_audio: bool = False
+
+    def pronunciation_map(self) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for line in (self.pronunciations or "").splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                if k.strip() and v.strip():
+                    out[k.strip()] = v.strip()
+        return out
 
     def personality_text(self) -> str:
         if self.personality == "custom" and self.personality_custom.strip():

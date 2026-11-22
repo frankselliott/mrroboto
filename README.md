@@ -92,6 +92,20 @@ enforces its one-joint-per-frame, 0.5 s-hold guard underneath.
 LED faces follow the conversation state: smile while listening, concentrating while thinking,
 talking mouth while speaking (switched to happy / laughing / sad for a tagged sentence).
 
+## Wake word, owner and music
+
+- **Hands-free with a wake word.** Tick *Hands-free* and the robot listens continuously but only
+  answers when an utterance starts with the wake word (default "Mr Roboto"; Whisper's spellings
+  such as "Mister Roboto" or "Mr Robot" all count). Say just the name and it answers "Yes?" and
+  takes your next sentence as the question. Push-to-talk never needs the wake word.
+- **Whose robot it is.** *Settings → Personality* has the robot's name, the owner's name, a free
+  text "About the owner" box that goes straight into the robot's knowledge, and a pronunciation
+  list (`Augie=Auggie` makes the voice say "Or-gee" rather than "Aj-ee").
+- **Dancing.** Point *Settings → Music* at a folder of songs (any format macOS can play; the
+  files' names become titles). Ask "play Intergalactic" or pick a song and press *Dance*: the
+  song streams to the robot's speaker while it cycles through Carle's verified dance routines
+  and arm moves, happy face on. Talking to it, pressing talk, or STOP ends the dance.
+
 ## Headless commands
 
 ```bash
