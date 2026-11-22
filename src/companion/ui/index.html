@@ -114,6 +114,8 @@
     </label>
     <label>Voice <input type="text" id="s-tts_voice" list="voices"><datalist id="voices"></datalist></label>
     <label>Speed <input type="number" id="s-tts_speed" step="0.05" min="0.6" max="1.5"></label>
+    <label>Robot effect <select id="s-voice_effect"><option value="robot">Robot voice</option><option value="none">Natural voice</option></select></label>
+    <label>Robot effect strength (0 = natural, 1 = full robot) <input type="number" id="s-voice_effect_amount" step="0.05" min="0" max="1"></label>
 
     <h2>Personality</h2>
     <label>Robot's name <input type="text" id="s-robot_name"></label>

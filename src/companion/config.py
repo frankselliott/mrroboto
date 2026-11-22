@@ -75,8 +75,10 @@ class Settings:
     max_reply_tokens: int = 400
     # text to speech
     tts_provider: str = "kokoro"  # kokoro | openai | say
-    tts_voice: str = "af_heart"
+    tts_voice: str = "am_michael"
     tts_speed: float = 1.0
+    voice_effect: str = "robot"  # robot | none
+    voice_effect_amount: float = 0.45  # 0 = natural voice, 1 = full robot
     # personality
     personality: str = "mr_roboto"
     personality_custom: str = ""

@@ -36,6 +36,7 @@ from companion.choreography import (
     Planner, beat_hold, energy_bands, estimate_bpm, routines_for, script_for, song_routines, theme_for,
 )
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
+from companion.voicefx import robotize
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
 from companion.spotify import SpotifyApp, SpotifySearch, SpotifyUser
@@ -596,6 +597,13 @@ class Companion:
             self._dance(song.title)
             time.sleep(1.0)
 
+    def _voice(self, text: str) -> np.ndarray:
+        """Synthesize speech with pronunciation fixes and the configured voice effect."""
+        pcm = self.tts.synthesize(self._pronounce(text))
+        if self.settings.voice_effect == "robot" and self.settings.voice_effect_amount > 0:
+            pcm = robotize(pcm, self.tts.samplerate, self.settings.voice_effect_amount)
+        return pcm
+
     def _pronounce(self, text: str) -> str:
         for word, spoken in self.settings.pronunciation_map().items():
             text = re.sub(r"\b" + re.escape(word) + r"\b", spoken, text)
@@ -796,7 +804,7 @@ class Companion:
                     else:
                         t = time.monotonic()
                         try:
-                            pcm = self.tts.synthesize(self._pronounce(s.text))
+                            pcm = self._voice(s.text)
                         except Exception as exc:  # noqa: BLE001
                             _log.exception("tts error")
                             self.emit("error", {"message": f"Voice: {exc}"})
@@ -932,7 +940,7 @@ class Companion:
         if self.tts is None:
             return
         try:
-            pcm = self.tts.synthesize(self._pronounce(text))
+            pcm = self._voice(text)
         except Exception as exc:  # noqa: BLE001
             self.emit("error", {"message": f"Voice: {exc}"})
             return
