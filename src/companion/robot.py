@@ -105,6 +105,19 @@ class CarleProcesses:
         self.restarts["daemon"] += 1
         self._launch_daemon()
 
+    def restart_speak(self, reason: str = "") -> None:
+        """Relaunch the speak server (its audio-device list goes stale when the speaker
+        disconnects and comes back; a fresh process sees the reconnected device)."""
+        _log.warning("restarting carle speak server: %s", reason)
+        if self._speak and self._speak.poll() is None:
+            self._speak.terminate()
+            try:
+                self._speak.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._speak.kill()
+        self.restarts["speak"] += 1
+        self._launch_speak()
+
     @property
     def daemon_alive(self) -> bool:
         return self._daemon is not None and self._daemon.poll() is None

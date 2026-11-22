@@ -290,6 +290,7 @@ class Companion:
         keeper = SpeakerKeeper(self.settings.speaker_device)
         was_connected: bool | None = None
         down_since: float | None = None
+        speaker_was: bool | None = None
         ticks = 0
         while not self._stop_poll.wait(2.0):
             ticks += 1
@@ -309,6 +310,14 @@ class Companion:
             # If the robot is reachable over BLE but its speaker dropped, ask macOS to
             # reconnect it (rate-limited inside the keeper).
             info["speaker_bt"] = keeper.ensure() if info["robot"]["connected"] else keeper.ensure() if info["speaker"] is False else None
+            # When the speaker comes back after being away, the speak server's device list is
+            # stale ("JT_Speaker is not a connected output"): relaunch it so it sees the device.
+            spk = info.get("speaker_bt")
+            if spk is True and speaker_was is False and self.processes:
+                self.processes.restart_speak("speaker reconnected")
+                self.emit("notice", {"message": "Speaker reconnected — audio ready again"})
+            if spk is not None:
+                speaker_was = spk
             self.emit("status", info)
             connected = info["robot"]["connected"]
             if was_connected is not None and connected != was_connected:
@@ -861,6 +870,8 @@ class Companion:
                 outcome = result.get("outcome", result.get("error", "unknown"))
                 if not result.get("ok"):
                     self.emit("error", {"message": f"Speaker: {result.get('error')}"})
+                    if "not a connected output" in str(result.get("error", "")) and self.processes:
+                        self.processes.restart_speak("stale audio device")
                     if not turn.spoken:
                         # Nothing was voiced: still show what the robot would have said.
                         from companion.dialogue import strip_tags  # noqa: PLC0415
