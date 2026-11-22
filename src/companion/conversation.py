@@ -28,6 +28,7 @@ from companion import behaviour
 from companion.audio import Microphone, VoiceGate
 from companion.behaviour import State
 from companion.config import Settings
+from companion import memory as memstore
 from companion.context import LiveContext
 from companion.dialogue import Sentence, SentenceAssembler
 from companion.llm import LLM, Conversation, Message, build_system_prompt, make_llm
@@ -86,7 +87,12 @@ class Companion:
         self.last_status: dict = {}
         self.provider_errors: dict[str, str] = {}
         self.library = Library(settings.music_dir)
-        self.context = LiveContext(settings.location)
+        self.context = LiveContext(settings.location, owner=settings.owner_name, birthday=settings.owner_birthday, birthdays=settings.birthdays)
+        self.memories: list[str] = memstore.load() if settings.memory_enabled else []
+        self._memory_llm: LLM | None = None
+        self._turns_since_memory = 0
+        self._memory_lock = threading.Lock()
+        self._party_cancel = threading.Event()
         self._wake_until = 0.0
         self._dance_cancel = threading.Event()
         self._last_interaction = time.monotonic()
@@ -148,6 +154,8 @@ class Companion:
             return
         self.running = False
         self.interrupt(reason="shutdown")
+        if self._turns_since_memory:
+            self._remember()  # a last pass before the lights go out (bounded by the model's reply)
         self._stop_poll.set()
         if self.gate:
             self.gate.disable()
@@ -175,6 +183,9 @@ class Companion:
         if settings.location != old.location:
             self.context.set_place(settings.location)
             threading.Thread(target=self._refresh_context, daemon=True).start()
+        self.context.owner, self.context.birthday, self.context.birthdays = settings.owner_name, settings.owner_birthday, settings.birthdays
+        if settings.memory_enabled and not old.memory_enabled:
+            self.memories = memstore.load()
         if self.running:
             if self.processes and settings.robot_address != old.robot_address:
                 self.processes.set_address(settings.robot_address)
@@ -367,18 +378,74 @@ class Companion:
         """True while a reply is being generated or spoken, or music is playing."""
         return self.state in (State.THINKING, State.SPEAKING, State.DANCING)
 
+    # --- memory across days -------------------------------------------------------------------
+
+    def _remember(self) -> None:
+        """Distil recent turns into durable facts; runs in the background every few turns."""
+        if not self.settings.memory_enabled or self.llm is None:
+            return
+        if not self._memory_lock.acquire(blocking=False):
+            return
+        try:
+            self._turns_since_memory = 0
+            if self._memory_llm is None:
+                self._memory_llm = make_llm(self.settings, self.secrets)  # its own session
+            recent = self.conversation.messages[-12:]
+            if len(recent) < 2:
+                return
+            new = memstore.extract(self._memory_llm, self.settings.owner_name, recent, self.memories)
+            if new:
+                before = len(self.memories)
+                self.memories = memstore.add(self.memories, new)
+                if len(self.memories) >= memstore.MAX_LINES:
+                    self.memories = memstore.merge(self._memory_llm, self.memories)
+                memstore.save(self.memories)
+                added = self.memories[before:] if len(self.memories) > before else new
+                self.emit("memory", {"added": added, "count": len(self.memories)})
+                _log.info("remembered %d new fact(s)", len(added))
+        except Exception as exc:  # noqa: BLE001 - memory must never break the conversation
+            _log.warning("memory extraction failed: %s", exc)
+        finally:
+            self._memory_lock.release()
+
+    def save_memories(self, lines: list[str]) -> None:
+        self.memories = [l.strip().lstrip("- ").strip() for l in lines if l.strip()]
+        memstore.save(self.memories)
+
     def song_titles(self) -> list[str]:
         self.library.rescan()
         return self.library.titles()
 
     def play_song(self, title: str) -> bool:
         """Play a song from the library through the robot and dance to it."""
-        if not self.running or self.library.find(title) is None:
+        if not self.running:
+            return False
+        if title.strip().lower() in ("party", "all", "everything", "dance party"):
+            if self.busy:
+                self.interrupt(reason="dance party")
+            threading.Thread(target=self._dance_party, daemon=True).start()
+            return True
+        if self.library.find(title) is None:
             return False
         if self.busy:
             self.interrupt(reason="new song")
         threading.Thread(target=self._dance, args=(title,), daemon=True).start()
         return True
+
+    def _dance_party(self) -> None:
+        """Every song in the library, shuffled, until someone interrupts."""
+        import random  # noqa: PLC0415
+
+        self._party_cancel = threading.Event()
+        cancel = self._party_cancel
+        songs = list(self.library.songs)
+        random.shuffle(songs)
+        self.emit("notice", {"message": f"Dance party: {len(songs)} songs"})
+        for song in songs:
+            if cancel.is_set() or not self.running:
+                break
+            self._dance(song.title)
+            time.sleep(1.0)
 
     def _pronounce(self, text: str) -> str:
         for word, spoken in self.settings.pronunciation_map().items():
@@ -434,6 +501,7 @@ class Companion:
         if turn:
             turn.cancel.set()
         self._dance_cancel.set()
+        self._party_cancel.set()
         self.speak.stop()
         try:
             self.daemon.clear()
@@ -458,6 +526,8 @@ class Companion:
         self.emit("notice", {"message": "Emergency stop: motion and audio halted"})
 
     def reset_conversation(self) -> None:
+        if self._turns_since_memory:
+            threading.Thread(target=self._remember, daemon=True).start()
         self.conversation.reset()
         if hasattr(self.llm, "new_session"):
             self.llm.new_session()  # Claude Code keeps its own memory per session
@@ -545,7 +615,8 @@ class Companion:
                     # so the warm Claude Code process never has to restart for a new minute.
                     last = messages[-1]
                     messages = messages[:-1] + [Message(last.role, f"({self.context.text()})\n{last.content}")]
-                for chunk in self.llm.stream(build_system_prompt(self.settings, self.library.titles()), messages):
+                system = build_system_prompt(self.settings, self.library.titles(), memstore.for_prompt(self.memories))
+                for chunk in self.llm.stream(system, messages):
                     if turn.cancel.is_set():
                         break
                     turn.raw += chunk
@@ -678,9 +749,16 @@ class Companion:
             elif unvoiced_text:
                 self.emit("transcript", {"role": "assistant", "text": unvoiced_text + " (robot speaker unavailable)", "partial": False})
             if self._turn is turn:
+                if not interrupted and turn.raw.strip():
+                    self._turns_since_memory += 1
+                    if self._turns_since_memory >= 4:
+                        threading.Thread(target=self._remember, name="remember", daemon=True).start()
                 dance = next((arg for name, arg in requested_actions if name == "dance"), None)
                 if dance and not interrupted and self.running:
-                    self._dance(dance)  # keeps the mic muted and hands back when done
+                    if dance.strip().lower() in ("party", "all", "everything", "dance party"):
+                        self._dance_party()
+                    else:
+                        self._dance(dance)  # keeps the mic muted and hands back when done
                     return
                 time.sleep(UNMUTE_DELAY)
                 if self.mic:

@@ -84,6 +84,9 @@ class Settings:
     user_name: str = ""
     owner_name: str = "Augie"
     owner_profile: str = ""  # free text: everything the robot should know about its owner
+    owner_birthday: str = ""  # YYYY-MM-DD; the robot counts down to it and celebrates on the day
+    birthdays: str = ""  # other people, one per line: Name=YYYY-MM-DD
+    memory_enabled: bool = True  # remember facts between days (memories.md next to the settings)
     pronunciations: str = "Augie=Auggie"  # one "word=spelling-to-speak" per line
     # wake word (hands-free mode)
     wake_word: str = "Mr Roboto"

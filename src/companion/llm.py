@@ -30,7 +30,7 @@ class LLM(Protocol):
     def stream(self, system: str, messages: list[Message]) -> Iterator[str]: ...
 
 
-def build_system_prompt(settings: Settings, song_titles: list[str] | None = None) -> str:
+def build_system_prompt(settings: Settings, song_titles: list[str] | None = None, memories: str = "") -> str:
     who = f" The person you are talking to is usually called {settings.user_name}." if settings.user_name else ""
     owner = ""
     if settings.owner_name:
@@ -40,6 +40,11 @@ def build_system_prompt(settings: Settings, song_titles: list[str] | None = None
         )
         if settings.owner_profile.strip():
             owner += f" Everything you know about {settings.owner_name}:\n{settings.owner_profile.strip()}"
+    if memories:
+        owner += (
+            f"\n\nThings you remember from earlier days (oldest first; bring one up when it fits, "
+            f"like a friend would, but don't list them):\n{memories}"
+        )
     songs = ""
     if song_titles:
         listing = "\n".join(f"- {t}" for t in song_titles[:40])
@@ -50,7 +55,8 @@ clearly wanted, reply with one short sentence and put the tag [dance:<exact titl
 of that sentence, using a title from this list exactly as written:
 {listing}
 If the request does not match a title, say which songs you do have instead. Never invent titles.
-While the music plays you dance on your own; the person can stop you by talking to you."""
+For a dance party (several songs in a row) use [dance:party]. While the music plays you dance on
+your own; the person can stop you by talking to you."""
     persona = settings.personality_text()
     if not persona.lower().startswith("you are"):
         persona = f"You are {settings.robot_name}, a small robot companion with LED eyes and two little arms. {persona}"

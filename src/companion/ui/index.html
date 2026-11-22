@@ -121,6 +121,8 @@
     <label>Custom personality <textarea id="s-personality_custom" placeholder="Used when preset is 'custom'"></textarea></label>
     <label>Owner's name (whose robot it is) <input type="text" id="s-owner_name"></label>
     <label>About the owner <textarea id="s-owner_profile" placeholder="Everything the robot should know: age, likes, pets, family, school, favourite things..."></textarea></label>
+    <label>Owner's birthday (YYYY-MM-DD) <input type="text" id="s-owner_birthday" placeholder="2022-12-13"></label>
+    <label>Other birthdays (one per line, Name=YYYY-MM-DD) <textarea id="s-birthdays" placeholder="Edie=2020-02-23"></textarea></label>
     <label>Your name (the person talking) <input type="text" id="s-user_name"></label>
     <label>Pronunciations (one per line, word=how to say it) <textarea id="s-pronunciations" placeholder="Augie=Auggie"></textarea></label>
 
@@ -131,6 +133,11 @@
     <label>Keep listening after a reply (seconds, no wake word needed) <input type="number" id="s-follow_up_seconds" step="1" min="0" max="120"></label>
     <label class="toggle"><input type="checkbox" id="s-auto_greet"> Greet when the robot comes online</label>
     <label>Say something after this many quiet minutes (0 = never) <input type="number" id="s-idle_nudge_minutes" step="0.5" min="0" max="60"></label>
+
+    <h2>Memory</h2>
+    <label class="toggle"><input type="checkbox" id="s-memory_enabled"> Remember things between days</label>
+    <label>What he remembers (one per line; edit freely) <textarea id="memories" style="min-height:120px"></textarea></label>
+    <div class="row"><button id="save-memories">Save memories</button><button id="forget">Forget everything</button></div>
 
     <h2>Time and weather</h2>
     <label class="toggle"><input type="checkbox" id="s-live_context"> Tell the robot the time and weather</label>
@@ -203,6 +210,7 @@ window.onCompanionEvent = (event, data) => {
     case 'status': renderStatus(data); break;
     case 'state': $('state').textContent = data.state; if (data.state !== 'listening') setTalking(false); break;
     case 'wake': addNote(data.message); break;
+    case 'memory': addNote('Remembered: ' + data.added.join(' · ')); api.get_memories().then(m => { $('memories').value = m.join('\n'); }); break;
     case 'level': $('meter').style.width = Math.min(100, Math.round(data.rms * 1200)) + '%'; break;
     case 'transcript': addMsg(data.role, data.text, data.partial); break;
     case 'transcript_reset': $('transcript').innerHTML = ''; lastAssistantEl = null; break;
@@ -248,6 +256,7 @@ async function init() {
   $('s-personality').innerHTML = opts.personalities.map(p => `<option>${p}</option>`).join('');
   $('s-mic_device').innerHTML = opts.mics.map(m => `<option>${m}</option>`).join('');
   renderSongs(opts.songs || []);
+  $('memories').value = (await api.get_memories()).join('\n');
   fillSettings(st.settings, st.secrets);
   renderStatus(st.status);
   for (const m of st.transcript) addMsg(m.role, m.content.replace(/\[[a-z_]+\]\s*/g, ''), false);
@@ -261,6 +270,9 @@ $('handsfree').onchange = (e) => api.set_hands_free(e.target.checked);
 $('reset').onclick = () => api.reset_conversation();
 $('logs').onclick = () => api.open_logs();
 $('save').onclick = async () => { const r = await api.save_settings(collectSettings()); const st = await api.get_state(); opts = st.options; fillSettings(r.settings, st.secrets); renderSongs(opts.songs || []); renderStatus(r.status); addNote('Settings saved'); };
+$('party').onclick = () => api.play_song('party');
+$('save-memories').onclick = async () => { const r = await api.save_memories($('memories').value); addNote(`Saved ${r.count} memories`); };
+$('forget').onclick = async () => { if (confirm('Forget everything Mr Roboto remembers from earlier days?')) { await api.save_memories(''); $('memories').value = ''; addNote('Memories cleared'); } };
 $('dance').onclick = async () => { const t = $('song').value; if (!t) return; const r = await api.play_song(t); if (!r.ok) addNote('Could not play ' + t, 'error'); };
 $('scan').onclick = async () => { $('scan').disabled = true; $('scan').textContent = 'Scanning…'; try { const r = await api.scan(); if (r.found.length) { $('s-robot_address').value = r.found[0].address; addNote(`Found ${r.found.map(f => f.name).join(', ')}`); } else addNote('No robot found. Is it switched on and nearby?', 'error'); } finally { $('scan').disabled = false; $('scan').textContent = 'Scan'; } };
 document.querySelectorAll('.savekey').forEach(b => b.onclick = async () => { const k = b.dataset.key; const v = $('k-' + k).value; const st = await api.set_secret(k, v); $('k-' + k).value = ''; for (const [kk, vv] of Object.entries(st)) $('st-' + kk).textContent = vv ? 'set ✓' : 'not set'; addNote(v ? `${k} saved` : `${k} cleared`); });

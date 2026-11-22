@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime
 
 import httpx
 
@@ -29,6 +29,35 @@ WMO = {
 
 def describe_code(code: int) -> str:
     return WMO.get(int(code), "a bit of everything")
+
+
+def birthday_text(owner: str, birthday: str, today: date | None = None) -> str:
+    """'Today is Augie's birthday! He is 4.' / 'Augie's birthday is in 3 days.' / ''"""
+    if not birthday:
+        return ""
+    today = today or date.today()
+    try:
+        y, m, d = (int(x) for x in birthday.strip().split("-"))
+    except ValueError:
+        return ""
+    this_year = date(today.year, m, d) if not (m == 2 and d == 29) else date(today.year, 2, 28)
+    nxt = this_year if this_year >= today else this_year.replace(year=today.year + 1)
+    days = (nxt - today).days
+    age = nxt.year - y
+    if days == 0:
+        return f"Today is {owner}'s birthday! {owner} is {age} today. Make a big happy fuss and offer a birthday song."
+    if days <= 14:
+        return f"{owner}'s birthday is in {days} day{'s' if days != 1 else ''} ({owner} will be {age})."
+    return ""
+
+
+def mood_text(now: datetime | None = None) -> str:
+    now = now or datetime.now().astimezone()
+    if now.hour >= 19 or now.hour < 6:
+        return "It is bedtime-ish: be calm, quiet and gentle, offer a slow story or a quiet song rather than a wild dance."
+    if now.hour >= 17:
+        return "It is the evening: a little calmer than daytime."
+    return ""
 
 
 def time_text(now: datetime | None = None) -> str:
@@ -106,8 +135,11 @@ def weather_text(data: dict, place: str) -> str:
 class LiveContext:
     """Keeps a fresh one-paragraph context string; refreshes the weather in the background."""
 
-    def __init__(self, place: str = "", refresh_seconds: float = 900):
+    def __init__(self, place: str = "", refresh_seconds: float = 900, owner: str = "", birthday: str = "", birthdays: str = ""):
         self.place = place
+        self.owner = owner
+        self.birthday = birthday
+        self.birthdays = birthdays  # "Name=YYYY-MM-DD" per line
         self.refresh_seconds = refresh_seconds
         self._client = httpx.Client()
         self._loc: dict | None = None
@@ -142,4 +174,16 @@ class LiveContext:
         parts = [f"Right now it is {time_text()}."]
         if self._weather:
             parts.append(self._weather)
+        for extra in (birthday_text(self.owner, self.birthday), *self._family_birthdays(), mood_text()):
+            if extra:
+                parts.append(extra)
         return " ".join(parts)
+
+    def _family_birthdays(self) -> list[str]:
+        out = []
+        for line in (self.birthdays or "").splitlines():
+            if "=" in line:
+                name, day = (x.strip() for x in line.split("=", 1))
+                if name and day:
+                    out.append(birthday_text(name, day))
+        return out
