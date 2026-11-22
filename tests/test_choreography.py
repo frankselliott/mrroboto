@@ -100,7 +100,7 @@ def test_every_song_script_is_complete_and_safe():
         "Tung Tung Tung Sahur Ratatung": "Tung Tung Tung Sahur",
         "Robot Happy Birthday Song (Confetti)": "Robot Happy Birthday Song",
         "Birthday Robot Dance Song (Quantum Robot)": "Birthday Robot Dance Song",
-        "Happy Birthday Augie": "Happy Birthday", "Pinkfong Baby Shark": "Pinkfong — Baby Shark",
+        "Happy Birthday Augie": "Happy Birthday", "Jingle Bells Batman Smells": "Jingle Bells, Batman Smells", "Pinkfong Baby Shark": "Pinkfong — Baby Shark",
     }
     for t, expected in titles.items():
         assert script_for(t) is not None and script_for(t).title == expected, t

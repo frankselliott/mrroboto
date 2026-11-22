@@ -347,6 +347,14 @@ def song_routines(h: float) -> dict[str, Routine]:
         Routine("lets go hunt", [_p(1, h), _p(3, h), _pause(h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _p(2, h), _p(4, h)], 2),
         Routine("run away", [_p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(1, h), _p(2, h), _p(3, h), _p(4, h), _w(1, h), _w(2, h)], 3),
         Routine("safe at last", [_p(5, h), _p(7, h), _pause(H), _p(6, h), _p(8, h), _g(27)], 1),
+        # Jingle Bells, Batman Smells
+        Routine("jingle bells", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 2),
+        Routine("sniff sniff pee-yew", [_p(1, h), _p(9, h), _pause(h), _w(1, h), _w(2, h), _p(10, h), _p(9, h), _p(10, h), _p(2, h), _p(5, h), _p(7, h), _pause(H), _p(6, h), _p(8, h)], 2),
+        Routine("robin laid an egg", [_w(1, h), _g(27), _pause(H), _p(5, h), _p(7, h), _pause(h), _w(1, h), _w(2, h), _p(6, h), _p(8, h)], 2),
+        Routine("lost its wheel", [_w(1, h), _w(2, h), _p(5, h), _w(1, h), _p(6, h), _w(2, h), _p(7, h), _w(1, h), _p(8, h), _w(2, h), _g(31)], 3),
+        Routine("joker got away", [_p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(1, h), _p(2, h), _p(3, h), _p(4, h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _g(27)], 3),
+        Routine("giggle fit", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _w(1, h), _w(2, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _w(1, h), _w(2, h)], 2),
+        Routine("bat wings", [_p(5, h), _p(7, h), _p(6, h), _p(8, h), _p(5, h), _p(7, h), _p(6, h), _p(8, h), _p(5, H), _p(7, H), _pause(h), _p(6, h), _p(8, h)], 2),
         # Tung Tung Tung Sahur
         Routine("tung drum", [_p(9, h), _p(10, h), _p(9, h), _p(10, h), _p(9, h), _p(10, h), _pause(h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h)], 3),
     ]
@@ -384,6 +392,13 @@ class SongScript:
 T, K, P, L, H = FACE_TALK, FACE_THINK, FACE_HAPPY, FACE_LAUGH, FACE_SAD  # short names
 
 SCRIPTS: tuple[SongScript, ...] = (
+    SongScript(("batman",), "Jingle Bells, Batman Smells", (
+        Section(0, 21, ("bat wings", "giggle fit"), (K, L), "bat wings", "here comes Batman"),
+        Section(21, 48, ("sniff sniff pee-yew", "robin laid an egg", "lost its wheel", "joker got away", "giggle fit"), (L, H, P), "jingle bells", "jingle bells, Batman smells"),
+        Section(48, 84, ("sniff sniff pee-yew", "robin laid an egg", "lost its wheel", "joker got away", "jingle bells"), (L, P, H), "jingle bells", "again, louder"),
+        Section(84, 99, ("giggle fit", "bat wings", "sniff sniff pee-yew"), (L, K), "giggle fit", "giggling break"),
+        Section(99, 400, ("jingle bells", "sniff sniff pee-yew", "robin laid an egg", "lost its wheel", "joker got away", "flail"), (L, P), "bat wings", "big silly finish"),
+    ), 2.5),
     SongScript(("confetti",), "Robot Happy Birthday Song", (
         Section(0, 12, ("systems check", "servo tilt", "make a wish"), (K, P), "power up", "the robots arrive"),
         Section(12, 28, ("birthday clap", "wave hello", "candles"), (P, T), "birthday clap", "happy birthday to you"),
