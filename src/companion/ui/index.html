@@ -272,7 +272,7 @@ $('stop').onclick = () => { setTalking(false); api.emergency_stop(); };
 $('handsfree').onchange = (e) => api.set_hands_free(e.target.checked);
 $('reset').onclick = () => api.reset_conversation();
 $('logs').onclick = () => api.open_logs();
-$('save').onclick = async () => { const r = await api.save_settings(collectSettings()); const st = await api.get_state(); opts = st.options; fillSettings(r.settings, st.secrets); renderSongs(opts.songs || []); renderStatus(r.status); addNote('Settings saved'); };
+$('save').onclick = async () => { for (const inp of document.querySelectorAll('.keyrow input')) { if (inp.value.trim()) { const k = inp.id.slice(2); await api.set_secret(k, inp.value); inp.value = ''; addNote(k + ' saved'); } } const r = await api.save_settings(collectSettings()); const st = await api.get_state(); opts = st.options; fillSettings(r.settings, st.secrets); renderSongs(opts.songs || []); renderStatus(r.status); addNote('Settings saved'); };
 $('party').onclick = () => api.play_song('party');
 $('spotify-go').onclick = async () => { const q = $('spotify').value.trim(); if (!q) return; const r = await api.play_spotify(q); if (!r.ok) addNote('Spotify is not set up (add the client ID and secret in Settings) or the app is stopped', 'error'); else $('spotify').value = ''; };
 $('spotify').onkeydown = (e) => { if (e.key === 'Enter') $('spotify-go').onclick(); };
