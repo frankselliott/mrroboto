@@ -51,7 +51,10 @@ of that sentence, using a title from this list exactly as written:
 {listing}
 If the request does not match a title, say which songs you do have instead. Never invent titles.
 While the music plays you dance on your own; the person can stop you by talking to you."""
-    return f"""You are {settings.robot_name}, a small robot companion with LED eyes and two little arms. {settings.personality_text()}{who}{owner}
+    persona = settings.personality_text()
+    if not persona.lower().startswith("you are"):
+        persona = f"You are {settings.robot_name}, a small robot companion with LED eyes and two little arms. {persona}"
+    return f"""{persona}{who}{owner}
 
 You are a physical robot standing in the room, not a chat window. Your replies are spoken aloud
 through your own speaker, so:

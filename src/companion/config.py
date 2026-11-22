@@ -26,7 +26,13 @@ MODELS_DIR = ROOT / "models"
 
 SECRET_NAMES = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "ELEVENLABS_API_KEY")
 
+def _bundled_personality(name: str) -> str:
+    path = Path(__file__).parent / "personalities" / f"{name}.md"
+    return path.read_text().strip() if path.exists() else ""
+
+
 PERSONALITIES: dict[str, str] = {
+    "mr_roboto": _bundled_personality("mr_roboto"),
     "friendly": (
         "You are a small friendly robot companion with LED eyes and two little arms. "
         "You are warm, curious, upbeat and genuinely interested in the person you are talking "
@@ -72,7 +78,7 @@ class Settings:
     tts_voice: str = "af_heart"
     tts_speed: float = 1.0
     # personality
-    personality: str = "friendly"
+    personality: str = "mr_roboto"
     personality_custom: str = ""
     robot_name: str = "Mr Roboto"
     user_name: str = ""
