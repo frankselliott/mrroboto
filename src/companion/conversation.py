@@ -84,6 +84,11 @@ class Companion:
         self.library = Library(settings.music_dir)
         self._wake_until = 0.0
         self._dance_cancel = threading.Event()
+        self._last_interaction = time.monotonic()
+        self._nudges = 0
+        self._greeted = False
+        self._disconnected_since: float | None = None
+        self._tts_ready = False
 
     # --- lifecycle ------------------------------------------------------------------------
 
@@ -204,6 +209,8 @@ class Companion:
                 continue
             try:
                 p.warm_up()
+                if p is self.tts:
+                    self._tts_ready = True
             except Exception as exc:  # noqa: BLE001
                 self.provider_errors[p.name] = str(exc)
                 self.emit("error", {"message": f"{p.name}: {exc}"})
@@ -271,7 +278,64 @@ class Companion:
                 self.emit("notice", {"message": "Robot connected" if connected else "Robot link lost — reconnecting"})
                 if connected and self.state != State.IDLE:
                     self._apply_face(behaviour.STATE_FACES[self.state], force=True)
+            if not connected:
+                if self._disconnected_since is None:
+                    self._disconnected_since = time.monotonic()
+            else:
+                # Greet when the robot first comes online, and again if it was away long enough
+                # to have been switched off (it probably just came back).
+                away = (time.monotonic() - self._disconnected_since) if self._disconnected_since else 0.0
+                self._disconnected_since = None
+                if (not self._greeted or away > 90) and self._ready_to_talk(info):
+                    self._greeted = True
+                    self._initiate("greet")
             was_connected = connected
+            self._maybe_nudge(info)
+
+    # --- conversation initiative -------------------------------------------------------------
+
+    def _ready_to_talk(self, info: dict) -> bool:
+        return bool(
+            self.running and self.settings.auto_greet and self._tts_ready and self.llm is not None
+            and info.get("speaker") and info["robot"]["connected"] and not self.busy
+        )
+
+    def _initiate(self, kind: str) -> None:
+        """Have the robot speak first: a greeting or an idle nudge. Runs as a normal turn."""
+        owner = self.settings.owner_name or "everyone"
+        if kind == "greet":
+            prompt = (
+                f"(You have just been switched on and {owner} may be nearby. Say a warm, short "
+                f"greeting of one or two sentences and suggest one fun thing you could do together.)"
+            )
+        else:
+            prompt = (
+                f"(Nobody has said anything for a while. In one or two short sentences, say "
+                f"something to get {owner}'s attention: offer a dance, a dinosaur fact, a chicken "
+                f"noise, or ask a simple question. Do not repeat what you said last time.)"
+            )
+        _log.info("initiating conversation: %s", kind)
+        threading.Thread(target=self._run_turn, args=(prompt, False), daemon=True).start()
+
+    def _maybe_nudge(self, info: dict) -> None:
+        minutes = self.settings.idle_nudge_minutes
+        if minutes <= 0 or not self.settings.hands_free or not self._ready_to_talk(info):
+            return
+        if self._nudges >= self.settings.idle_nudge_max:
+            return
+        if time.monotonic() - self._last_interaction >= minutes * 60:
+            self._nudges += 1
+            self._last_interaction = time.monotonic()
+            self._initiate("nudge")
+
+    def _open_follow_up_window(self) -> None:
+        """After the robot speaks, accept the next utterance without the wake word."""
+        if self.settings.hands_free and self.settings.follow_up_seconds > 0:
+            self._wake_until = time.monotonic() + self.settings.follow_up_seconds
+
+    def _note_interaction(self) -> None:
+        self._last_interaction = time.monotonic()
+        self._nudges = 0
 
     # --- user actions ---------------------------------------------------------------------
 
@@ -324,6 +388,7 @@ class Companion:
             return
         if self.busy:
             self.interrupt(reason="new typed message")
+        self._note_interaction()
         self.emit("transcript", {"role": "user", "text": text})
         threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
 
@@ -426,10 +491,11 @@ class Companion:
                 return
             text = rest if matched else text
             self._wake_until = 0.0
+        self._note_interaction()
         self.emit("transcript", {"role": "user", "text": text})
         self._run_turn(text)
 
-    def _run_turn(self, user_text: str) -> None:
+    def _run_turn(self, user_text: str, show_user: bool = True) -> None:
         if self.llm is None or self.tts is None:
             self.emit("error", {"message": "A language model and a voice must be configured first"})
             self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
@@ -590,6 +656,7 @@ class Companion:
                 time.sleep(UNMUTE_DELAY)
                 if self.mic:
                     self.mic.set_muted(False)
+                self._open_follow_up_window()
                 self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
 
     # --- music ------------------------------------------------------------------------------
@@ -680,6 +747,7 @@ class Companion:
             time.sleep(UNMUTE_DELAY)
             if self.mic:
                 self.mic.set_muted(False)
+            self._open_follow_up_window()
             if self.running:
                 self._set_state(State.LISTENING if self.settings.hands_free else State.IDLE)
 

@@ -73,3 +73,32 @@ def test_silent_mic_is_reported_not_transcribed():
 def test_pronunciation_substitution():
     c, *_ = make("x")
     assert c._pronounce("Hi Augie, Augie's robot here.") == "Hi Auggie, Auggie's robot here."
+
+
+def test_follow_up_window_lets_next_utterance_skip_wake_word():
+    c, events, turns, said = make("what about the chickens?")
+    c.settings.follow_up_seconds = 15
+    c._open_follow_up_window()
+    c._handle_utterance(np.ones(16000, dtype=np.float32) * 0.1, hands_free=True)
+    assert turns == ["what about the chickens?"]
+    # the window closes once used
+    c.stt = FakeSTT("and the cars?")
+    c._handle_utterance(np.ones(16000, dtype=np.float32) * 0.1, hands_free=True)
+    assert turns == ["what about the chickens?"]
+
+
+def test_idle_nudge_only_when_ready_and_limited():
+    c, events, turns, said = make("x")
+    initiated = []
+    c._initiate = lambda kind: initiated.append(kind)
+    c._tts_ready = True
+    c.settings.idle_nudge_minutes = 0.0001
+    c.settings.idle_nudge_max = 2
+    c._last_interaction -= 60
+    ready = {"speaker": True, "robot": {"connected": True}}
+    c._maybe_nudge({"speaker": False, "robot": {"connected": True}})
+    assert initiated == []  # speaker not ready
+    c._maybe_nudge(ready); c._last_interaction -= 60; c._maybe_nudge(ready); c._last_interaction -= 60; c._maybe_nudge(ready)
+    assert initiated == ["nudge", "nudge"]  # capped per silence
+    c._note_interaction(); c._last_interaction -= 60; c._maybe_nudge(ready)
+    assert initiated == ["nudge", "nudge", "nudge"]  # reset by a real interaction

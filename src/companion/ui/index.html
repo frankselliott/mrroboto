@@ -128,6 +128,9 @@
     <label class="toggle"><input type="checkbox" id="s-wake_word_enabled"> Require the wake word</label>
     <label>Wake word <input type="text" id="s-wake_word"></label>
     <label>Sensitivity <input type="number" id="s-vad_threshold" step="0.002" min="0.004" max="0.08"></label>
+    <label>Keep listening after a reply (seconds, no wake word needed) <input type="number" id="s-follow_up_seconds" step="1" min="0" max="120"></label>
+    <label class="toggle"><input type="checkbox" id="s-auto_greet"> Greet when the robot comes online</label>
+    <label>Say something after this many quiet minutes (0 = never) <input type="number" id="s-idle_nudge_minutes" step="0.5" min="0" max="60"></label>
 
     <h2>Music</h2>
     <label>Songs folder <input type="text" id="s-music_dir"></label>

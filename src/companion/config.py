@@ -56,7 +56,7 @@ class Settings:
     animate: bool = True
     # audio in
     mic_device: str = "MacBook Air Microphone"
-    hands_free: bool = False
+    hands_free: bool = True
     vad_threshold: float = 0.012
     # speech to text
     stt_provider: str = "local"  # local | openai
@@ -83,6 +83,11 @@ class Settings:
     wake_word: str = "Mr Roboto"
     wake_word_enabled: bool = True
     wake_window_seconds: float = 10.0
+    follow_up_seconds: float = 15.0  # after a reply, keep listening this long without the wake word
+    # conversation initiative (hands-free)
+    auto_greet: bool = True  # greet when the robot comes online
+    idle_nudge_minutes: float = 4.0  # say something after this much silence (0 = never)
+    idle_nudge_max: int = 2  # at most this many nudges per silence
     # music
     music_dir: str = "~/Downloads/Robot songs"
     # privacy / debug
