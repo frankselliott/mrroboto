@@ -241,8 +241,19 @@ class Companion:
 
         keeper = SpeakerKeeper(self.settings.speaker_device)
         was_connected: bool | None = None
+        down_since: float | None = None
         while not self._stop_poll.wait(2.0):
             info = self.status()
+            # A daemon that stays disconnected for a long while is usually stuck with stale
+            # CoreBluetooth state (Mac Bluetooth toggled, radio reset): relaunch it.
+            if info["robot"]["connected"] or not info["daemon_process"]:
+                down_since = None
+            elif down_since is None:
+                down_since = time.monotonic()
+            elif time.monotonic() - down_since > 60 and self.processes:
+                self.processes.restart_daemon("robot link down for over 60 s")
+                self.emit("notice", {"message": "Robot link down for a minute — restarting the Bluetooth link"})
+                down_since = None
             # If the robot is reachable over BLE but its speaker dropped, ask macOS to
             # reconnect it (rate-limited inside the keeper).
             info["speaker_bt"] = keeper.ensure() if info["robot"]["connected"] else keeper.ensure() if info["speaker"] is False else None

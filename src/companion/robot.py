@@ -92,6 +92,19 @@ class CarleProcesses:
                 self._daemon.kill()
         self._launch_daemon()
 
+    def restart_daemon(self, reason: str = "") -> None:
+        """Kill and relaunch the daemon (its CoreBluetooth state can go stale, e.g. after the
+        Mac's Bluetooth is toggled off and on; the robot then never reconnects without this)."""
+        _log.warning("restarting carle daemon: %s", reason)
+        if self._daemon and self._daemon.poll() is None:
+            self._daemon.terminate()
+            try:
+                self._daemon.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._daemon.kill()
+        self.restarts["daemon"] += 1
+        self._launch_daemon()
+
     @property
     def daemon_alive(self) -> bool:
         return self._daemon is not None and self._daemon.poll() is None
