@@ -495,3 +495,197 @@ def script_for(title: str) -> SongScript | None:
         if any(k in t for k in script.keywords):
             return script
     return None
+
+
+# --- v2: denser, layered routines ------------------------------------------------------------
+#
+# Carle's engine lets each joint byte (limb, waist) change at most every 0.5 s and sends one
+# joint per frame. Alternating arms and waist beat by beat therefore moves *something* every
+# beat even on fast songs, while each joint still changes only every two beats. The animated
+# 0xB2 arm codes (1-24: 1/13 forward raise, 5/17 lateral raise, 9/21 elbow up, 11/23 elbow
+# down, 3/15 lower, 19 both home) add smooth flourishes and are always fired once.
+
+JOINT_FLOOR = 0.5
+MIN_STEP = 0.25
+
+
+def servo_safe(routine: "Routine") -> tuple[bool, str]:
+    """Simulate the routine: no joint target may change again within JOINT_FLOOR seconds."""
+    t = 0.0
+    last_change = {"limb": -10.0, "waist": -10.0}
+    for s in routine.steps:
+        if "pose" in s:
+            if t - last_change["limb"] < JOINT_FLOOR - 1e-9:
+                return False, f"limb changes too fast at {t:.2f}s in {routine.name}"
+            last_change["limb"] = t
+            t += float(s["hold"])
+        elif "waist" in s:
+            if t - last_change["waist"] < JOINT_FLOOR - 1e-9:
+                return False, f"waist changes too fast at {t:.2f}s in {routine.name}"
+            last_change["waist"] = t
+            t += float(s["hold"])
+        elif "travel" in s:
+            t += float(s["travel"]["hold"])
+        elif "pause" in s:
+            t += float(s["pause"])
+        elif "gesture" in s:
+            t += 1.0  # a canned animation; the next frame waits for it
+        if ("pose" in s or "waist" in s) and float(s["hold"]) < MIN_STEP - 1e-9:
+            return False, f"hold under {MIN_STEP}s in {routine.name}"
+    return True, ""
+
+
+def _alt(limbs: list[int], h: float, waist: tuple[int, ...] = (1, 2)) -> list[dict]:
+    """Arms on the beat, waist on the off-beat: limb, waist, limb, waist... at h/2 each.
+
+    Each joint changes every h (>= 0.5 s) while a move lands every h/2 (>= 0.25 s).
+    """
+    hh = max(MIN_STEP, h / 2.0)
+    out: list[dict] = []
+    for i, limb in enumerate(limbs):
+        out.append(_p(limb, hh))
+        out.append(_w(waist[i % len(waist)], hh))
+    return out
+
+
+def _hand(code: int) -> dict:
+    return {"gesture": code}
+
+
+def dense_routines(h: float, floor: bool = False) -> list[Routine]:
+    """The v2 party library: every routine moves on every beat."""
+    H = h * 2  # noqa: N806
+    r = [
+        # Arms + hips, alternating every beat
+        Routine("pump and sway", _alt([1, 9, 10, 2, 3, 11, 12, 4], h), 3),
+        Routine("wide and wiggle", _alt([5, 7, 6, 8, 5, 7, 6, 8], h), 3),
+        Routine("elbow hips", _alt([9, 10, 9, 10, 11, 12, 11, 12], h), 2),
+        Routine("cross body", _alt([1, 7, 2, 8, 3, 5, 4, 6], h), 3),
+        # Build a held pose beat by beat, hold it, release it with sways
+        Routine("build the Y", [_p(5, h), _p(1, h), _p(7, h), _p(3, h), _pause(H), _g(25), _pause(h), _p(6, h), _p(2, h), _p(8, h), _p(4, h)], 2),
+        Routine("statue then shake", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _pause(H * 2), _g(33), _pause(H), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 2),
+        # Animated flourishes between held poses
+        Routine("flourish", [_hand(1), _pause(h), _hand(13), _pause(h), _hand(9), _pause(h), _hand(21), _pause(H), _hand(19)], 2),
+        Routine("rolling waves", [_hand(5), _pause(h), _hand(17), _pause(h), _p(9, h), _p(11, h), _w(1, h), _w(2, h), _hand(19)], 2),
+        # Fast alternations for the chorus
+        Routine("double time", _alt([1, 2, 3, 4, 1, 2, 3, 4, 5, 6, 7, 8], h), 3),
+        Routine("wave machine", _alt([5, 6, 7, 8, 5, 6, 7, 8], h, waist=(1, 2, 2, 1)), 3),
+        # Calmer grooves
+        Routine("slow groove", [_w(1, H), _w(2, H), _p(1, H), _w(1, H), _p(2, H), _w(2, H)], 1),
+        Routine("torso and bows", [_g(25), _pause(H), _g(27), _pause(H), _g(35), _pause(H), _g(31)], 1),
+        # Big finish
+        Routine("grand finale", [_p(5, h), _p(1, h), _p(7, h), _p(3, h), _pause(H), _g(25), _pause(H), _g(27), _pause(h), _p(6, h), _p(8, h), _p(2, h), _p(4, h), _g(19)], 3),
+    ]
+    if floor:
+        r += [
+            Routine("spin and pose", [_turn(3, H), _pause(h), _p(5, h), _p(7, h), _pause(H), _turn(7, H), _p(6, h), _p(8, h)], 3, floor=True),
+        ]
+    for routine in r:
+        ok, why = servo_safe(routine)
+        assert ok, why
+    return r
+
+
+def dense_theme_extras(theme_name: str, h: float) -> list[Routine]:
+    """Extra, denser routines per theme (same alternating trick, in character)."""
+    H = h * 2  # noqa: N806
+    if theme_name == "robot":
+        r = [
+            Routine("assembly line", _alt([1, 9, 10, 2, 3, 11, 12, 4], H), 2),  # mechanical but on every beat
+            Routine("robot boogie", _alt([5, 6, 7, 8], h), 3),
+            Routine("full reboot", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _pause(H * 2), _hand(19), _pause(H), _hand(1), _pause(h), _hand(13), _pause(H)], 2),
+            Routine("antenna", [_p(1, H), _p(9, H), _pause(H), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _p(10, H), _p(2, H)], 1),
+        ]
+    elif theme_name == "dinosaur":
+        r = [
+            Routine("stomping chomp", _alt([9, 11, 10, 12, 9, 11, 10, 12], h), 3),
+            Routine("rampage", _alt([5, 7, 1, 3, 6, 8, 2, 4], h), 3),
+            Routine("mighty roar", [_p(5, h), _p(7, h), _p(9, h), _p(11, h), _pause(H * 2), _g(27), _pause(h), _p(10, h), _p(12, h), _p(6, h), _p(8, h)], 3),
+            Routine("hatchling", [_hand(9), _pause(h), _hand(21), _pause(h), _w(1, h), _w(2, h), _hand(19)], 1),
+        ]
+    elif theme_name == "silly":
+        r = [
+            Routine("wobble pop", _alt([1, 3, 2, 4, 5, 7, 6, 8, 9, 11, 10, 12], h), 3),
+            Routine("noodle arms", [_hand(5), _pause(h), _hand(17), _pause(h), _hand(1), _pause(h), _hand(13), _pause(h), _hand(19), _w(1, h), _w(2, h)], 2),
+            Routine("hiccups", _alt([9, 10, 11, 12], h, waist=(1, 1, 2, 2)), 2),
+            Routine("silly statue", [_p(5, h), _p(9, h), _p(3, h), _pause(H * 2), _g(31), _pause(H), _p(10, h), _p(6, h), _p(4, h)], 2),
+        ]
+    else:
+        r = []
+    for routine in r:
+        ok, why = servo_safe(routine)
+        assert ok, why
+    return r
+
+
+_orig_routines_for = routines_for
+
+
+def routines_for(theme: Theme, hold: float, floor: bool) -> list[Routine]:  # noqa: F811 - v2 override
+    base = _orig_routines_for(theme, hold, floor)
+    if theme.name == "party":
+        base = base + dense_routines(hold, floor)
+    return base + dense_theme_extras(theme.name, hold)
+
+
+_orig_song_routines = song_routines
+
+
+def song_routines(h: float) -> dict[str, Routine]:  # noqa: F811 - v2 override
+    reg = _orig_song_routines(h)
+    for lib in (dense_routines(h, True), *(dense_theme_extras(n, h) for n in ("robot", "dinosaur", "silly"))):
+        for r in lib:
+            reg.setdefault(r.name, r)
+    return reg
+
+
+# --- widen every song script with the dense routines, by section energy ----------------------
+
+_DENSE_BY_THEME: dict[str, dict[str, tuple[str, ...]]] = {
+    "party": {
+        "calm": ("slow groove", "torso and bows", "flourish"),
+        "mid": ("pump and sway", "elbow hips", "rolling waves", "build the Y", "statue then shake"),
+        "wild": ("double time", "wave machine", "cross body", "wide and wiggle", "grand finale"),
+    },
+    "robot": {
+        "calm": ("antenna", "full reboot"),
+        "mid": ("assembly line", "flourish"),
+        "wild": ("robot boogie", "assembly line", "double time"),
+    },
+    "dinosaur": {
+        "calm": ("hatchling",),
+        "mid": ("stomping chomp", "mighty roar"),
+        "wild": ("rampage", "stomping chomp", "mighty roar"),
+    },
+    "silly": {
+        "calm": ("noodle arms", "hiccups"),
+        "mid": ("wobble pop", "silly statue", "hiccups"),
+        "wild": ("wobble pop", "double time", "noodle arms", "wave machine"),
+    },
+}
+_FINALE_BY_THEME = {"party": "grand finale", "robot": "full reboot", "dinosaur": "mighty roar", "silly": "grand finale"}
+
+
+def _section_energy(sec: Section) -> str:
+    faces = set(sec.faces)
+    if faces <= {FACE_THINK, FACE_SAD} or (sec.signature is None and FACE_LAUGH not in faces and FACE_HAPPY not in faces):
+        return "calm"
+    if FACE_LAUGH in faces:
+        return "wild"
+    return "mid"
+
+
+def _augment(script: SongScript) -> SongScript:
+    theme = theme_for(script.title).name
+    extras = _DENSE_BY_THEME.get(theme, _DENSE_BY_THEME["party"])
+    sections = []
+    for i, sec in enumerate(script.sections):
+        add = extras[_section_energy(sec)]
+        pool = tuple(dict.fromkeys(sec.pool + add))
+        last = i == len(script.sections) - 1
+        signature = sec.signature or (_FINALE_BY_THEME.get(theme, "grand finale") if last else None)
+        sections.append(Section(sec.start, sec.end, pool, sec.faces, signature, sec.note))
+    return SongScript(script.keywords, script.title, tuple(sections), script.face_period)
+
+
+SCRIPTS = tuple(_augment(s) for s in SCRIPTS)
