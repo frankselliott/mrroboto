@@ -28,8 +28,9 @@ from companion import behaviour
 from companion.audio import Microphone, VoiceGate
 from companion.behaviour import State
 from companion.config import Settings
+from companion.context import LiveContext
 from companion.dialogue import Sentence, SentenceAssembler
-from companion.llm import LLM, Conversation, build_system_prompt, make_llm
+from companion.llm import LLM, Conversation, Message, build_system_prompt, make_llm
 from companion.choreography import (
     Planner, beat_hold, energy_bands, estimate_bpm, routines_for, script_for, song_routines, theme_for,
 )
@@ -85,6 +86,7 @@ class Companion:
         self.last_status: dict = {}
         self.provider_errors: dict[str, str] = {}
         self.library = Library(settings.music_dir)
+        self.context = LiveContext(settings.location)
         self._wake_until = 0.0
         self._dance_cancel = threading.Event()
         self._last_interaction = time.monotonic()
@@ -108,6 +110,7 @@ class Companion:
         self._poller = threading.Thread(target=self._poll_status, name="status-poller", daemon=True)
         self._poller.start()
         threading.Thread(target=self._warm_up, name="warm-up", daemon=True).start()
+        threading.Thread(target=self._refresh_context, name="context", daemon=True).start()
         self._set_state(State.LISTENING if s.hands_free else State.IDLE)
 
     def _open_microphone(self) -> None:
@@ -169,6 +172,9 @@ class Companion:
         self.conversation.max_turns = settings.max_history_turns
         if settings.music_dir != old.music_dir:
             self.library = Library(settings.music_dir)
+        if settings.location != old.location:
+            self.context.set_place(settings.location)
+            threading.Thread(target=self._refresh_context, daemon=True).start()
         if self.running:
             if self.processes and settings.robot_address != old.robot_address:
                 self.processes.set_address(settings.robot_address)
@@ -205,6 +211,16 @@ class Companion:
                 self.provider_errors[name] = str(exc)
                 _log.warning("%s provider unavailable: %s", name, exc)
                 self.emit("error", {"message": str(exc)})
+
+    def _refresh_context(self) -> None:
+        if not self.settings.live_context:
+            return
+        try:
+            self.context.refresh()
+            if self.context.resolved_place and not self.settings.location:
+                self.emit("notice", {"message": f"Weather location detected: {self.context.resolved_place} (change it in Settings)"})
+        except Exception as exc:  # noqa: BLE001
+            _log.debug("context refresh failed: %s", exc)
 
     def _warm_up(self) -> None:
         for p in (self.stt, self.tts):
@@ -260,7 +276,11 @@ class Companion:
         keeper = SpeakerKeeper(self.settings.speaker_device)
         was_connected: bool | None = None
         down_since: float | None = None
+        ticks = 0
         while not self._stop_poll.wait(2.0):
+            ticks += 1
+            if ticks % 150 == 0:  # every five minutes, cheap because the context caches
+                threading.Thread(target=self._refresh_context, daemon=True).start()
             info = self.status()
             # A daemon that stays disconnected for a long while is usually stuck with stale
             # CoreBluetooth state (Mac Bluetooth toggled, radio reset): relaunch it.
@@ -519,7 +539,13 @@ class Companion:
         def produce_text() -> None:
             assembler = SentenceAssembler()
             try:
-                for chunk in self.llm.stream(build_system_prompt(self.settings, self.library.titles()), self.conversation.messages):
+                messages = self.conversation.messages
+                if self.settings.live_context and messages:
+                    # Time and weather ride along with the question, not in the system prompt,
+                    # so the warm Claude Code process never has to restart for a new minute.
+                    last = messages[-1]
+                    messages = messages[:-1] + [Message(last.role, f"({self.context.text()})\n{last.content}")]
+                for chunk in self.llm.stream(build_system_prompt(self.settings, self.library.titles()), messages):
                     if turn.cancel.is_set():
                         break
                     turn.raw += chunk

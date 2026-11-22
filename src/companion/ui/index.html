@@ -132,6 +132,10 @@
     <label class="toggle"><input type="checkbox" id="s-auto_greet"> Greet when the robot comes online</label>
     <label>Say something after this many quiet minutes (0 = never) <input type="number" id="s-idle_nudge_minutes" step="0.5" min="0" max="60"></label>
 
+    <h2>Time and weather</h2>
+    <label class="toggle"><input type="checkbox" id="s-live_context"> Tell the robot the time and weather</label>
+    <label>Location for weather (blank = detect once) <input type="text" id="s-location" placeholder="Sydney, Australia"></label>
+
     <h2>Music</h2>
     <label>Songs folder <input type="text" id="s-music_dir"></label>
     <div class="hint" id="songs-found"></div>

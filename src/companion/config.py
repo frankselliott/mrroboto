@@ -94,6 +94,9 @@ class Settings:
     auto_greet: bool = True  # greet when the robot comes online
     idle_nudge_minutes: float = 4.0  # say something after this much silence (0 = never)
     idle_nudge_max: int = 2  # at most this many nudges per silence
+    # live context
+    location: str = ""  # place name for the weather, e.g. "Sydney, Australia" (blank = detect once)
+    live_context: bool = True  # tell the model the time and weather with each question
     # music
     music_dir: str = "~/Downloads/Robot songs"
     dance_floor_moves: bool = False  # allow turns/steps while dancing (floor only, never a table)
