@@ -47,3 +47,29 @@ def test_planner_never_repeats_and_ramps_energy():
     early = np.mean([energies[n] for n in names[:8]])
     late = np.mean([energies[n] for n in names[-8:]])
     assert late > early
+
+
+def test_theme_selection_and_themed_routines_are_servo_safe():
+    from companion.choreography import THEMES, energy_bands, routines_for, theme_for
+
+    assert theme_for("Beastie Boys Intergalactic").name == "robot"
+    assert theme_for("Tyrannosaurus Rex Dinosaur Song").name == "dinosaur"
+    assert theme_for("Tung Tung Tung Sahur").name == "silly"
+    assert theme_for("Pharrell Williams - Happy").name == "party"
+    for theme in THEMES.values():
+        for floor in (False, True):
+            rs = routines_for(theme, 0.5, floor)
+            assert len(rs) >= 8
+            for r in rs:
+                for s in r.steps:
+                    if "pose" in s or "waist" in s:
+                        assert s["hold"] >= MIN_HOLD
+                    if "travel" in s:
+                        assert floor and r.floor
+        for band in theme.faces:
+            assert band and all(f in (39, 41, 43, 45, 47) for f in band)
+    sr = 24000
+    quiet = np.zeros(sr * 4, dtype=np.int16)
+    loud = (np.random.default_rng(0).standard_normal(sr * 4) * 8000).astype(np.int16)
+    bands = energy_bands(np.concatenate([quiet, loud, quiet]), sr, 2.0)
+    assert list(bands) == [0, 0, 2, 2, 0, 0]

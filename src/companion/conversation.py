@@ -30,7 +30,7 @@ from companion.behaviour import State
 from companion.config import Settings
 from companion.dialogue import Sentence, SentenceAssembler
 from companion.llm import LLM, Conversation, build_system_prompt, make_llm
-from companion.choreography import Planner, beat_hold, build_routines, estimate_bpm
+from companion.choreography import Planner, beat_hold, energy_bands, estimate_bpm, routines_for, theme_for
 from companion.music import SAMPLE_RATE as SONG_RATE, Library, decode
 from companion.wakeword import split_wake
 from companion.robot import CarleProcesses, DaemonClient, DaemonError, SpeakClient
@@ -703,11 +703,13 @@ class Companion:
         chunk = int(sr * CHUNK_SECONDS)
         bpm = estimate_bpm(pcm, sr)
         hold = beat_hold(bpm)
-        planner = Planner(build_routines(hold, self.settings.dance_floor_moves))
+        theme = theme_for(song.title)
+        planner = Planner(routines_for(theme, hold, self.settings.dance_floor_moves))
         total = len(pcm) / sr
-        faces = (behaviour.FACE_HAPPY, behaviour.FACE_LAUGH)
-        state = {"next": 0.0, "face_at": 0.0, "face_i": 0, "routines": []}
-        self.emit("notice", {"message": f"Dancing at about {bpm:.0f} beats per minute"})
+        band_window = 2.0
+        bands = energy_bands(pcm, sr, band_window)
+        state = {"next": 0.0, "face_at": 0.0, "face_i": 0, "band": -1, "routines": []}
+        self.emit("notice", {"message": f"{theme.description.capitalize()} at about {bpm:.0f} beats per minute"})
 
         def body():
             start = time.monotonic()
@@ -733,14 +735,21 @@ class Companion:
                         pass
                     # Next routine starts when this one has finished, plus one beat's rest.
                     state["next"] = now + routine.duration + hold
-                if now >= state["face_at"]:
-                    state["face_i"] += 1
-                    self._apply_face(faces[state["face_i"] % 2])
-                    state["face_at"] = now + 8.0
+                # The face follows the music: quiet/medium/loud passages each have their own
+                # faces for this theme, cycled every face_period seconds.
+                band = int(bands[min(len(bands) - 1, int(written / band_window))])
+                if band != state["band"] or now >= state["face_at"]:
+                    if band != state["band"]:
+                        state["band"], state["face_i"] = band, 0
+                    else:
+                        state["face_i"] += 1
+                    palette = theme.faces[band]
+                    self._apply_face(palette[state["face_i"] % len(palette)])
+                    state["face_at"] = now + theme.face_period
                 yield pcm[i : i + chunk].tobytes()
                 written += len(pcm[i : i + chunk]) / sr
 
-        _log.info("dancing to %s (%.0fs, %.0f bpm, hold %.2fs)", song.title, total, bpm, hold)
+        _log.info("dancing to %s (%s theme, %.0fs, %.0f bpm, hold %.2fs)", song.title, theme.name, total, bpm, hold)
         try:
             result = self.speak.stream_pcm(body(), sr)
             if not result.get("ok"):

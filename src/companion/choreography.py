@@ -172,3 +172,133 @@ class Planner:
         self._last = choice.name
         self.count += 1
         return choice
+
+
+# --- themes: a style of dancing and a face palette per kind of song ---------------------------
+
+FACE_SAD, FACE_LAUGH, FACE_THINK, FACE_TALK, FACE_HAPPY = 39, 41, 43, 45, 47
+
+
+@dataclass(frozen=True)
+class Theme:
+    name: str
+    description: str
+    #: faces for quiet / medium / loud passages of the song (cycled within a band)
+    faces: tuple[tuple[int, ...], tuple[int, ...], tuple[int, ...]]
+    #: how long a face is held before the next in its band, in seconds
+    face_period: float = 4.0
+
+
+def robot_routines(h: float, floor: bool) -> list[Routine]:
+    """Stop-motion: every move is a crisp two-beat hold, one joint at a time, like The Robot."""
+    H = h * 2  # noqa: N806 - mechanical holds are double length
+    r = [
+        Routine("the robot", [
+            _p(1, H), _p(9, H), _pause(h), _p(10, H), _p(2, H), _p(3, H), _p(11, H), _pause(h), _p(12, H), _p(4, H),
+        ], 2),
+        Routine("tin man", [_p(5, H), _pause(h), _p(9, H), _pause(h), _p(7, H), _pause(h), _p(11, H), _pause(h), _p(10, H), _p(12, H), _p(6, H), _p(8, H)], 2),
+        Routine("robot arms", [_p(1, H), _p(3, H), _p(9, H), _p(11, H), _pause(H), _p(10, H), _pause(h), _p(12, H), _pause(h), _p(2, H), _p(4, H)], 3),
+        Routine("servo tilt", [_w(1, H), _pause(h), _w(2, H), _pause(h), _w(1, H), _w(2, H)], 1),
+        Routine("systems check", [_p(5, H), _pause(H), _p(6, H), _p(7, H), _pause(H), _p(8, H), _p(1, H), _pause(H), _p(2, H)], 1),
+        Routine("power up", [_p(1, h), _p(3, h), _p(5, h), _p(7, h), _pause(H), _p(9, H), _p(11, H), _pause(H), _p(10, h), _p(12, h), _p(6, h), _p(8, h), _p(2, h), _p(4, h)], 3),
+        Routine("robot wave", [_p(1, H), _p(9, H), _p(7, H), _pause(h), _p(10, H), _p(9, H), _p(10, H), _p(8, H), _p(2, H)], 2),
+        Routine("glitch", [_p(9, h), _p(10, h), _p(9, h), _pause(H), _p(11, h), _p(12, h), _p(11, h), _pause(H), _p(10, h), _p(12, h)], 3),
+        Routine("torso servo", [_g(25), _pause(H), _g(33)], 1),
+    ]
+    if floor:
+        r.append(Routine("quarter turn", [_turn(3, H), _pause(H), _turn(7, H), _pause(h), _g(25)], 2, floor=True))
+    return r
+
+
+def dinosaur_routines(h: float, floor: bool) -> list[Routine]:
+    """Stomps, tiny T-Rex arms, big roars and a swinging tail."""
+    H = h * 2  # noqa: N806
+    r = [
+        Routine("tiny t-rex arms", [_p(9, h), _p(11, h), _p(1, h), _p(2, h), _p(3, h), _p(4, h), _p(1, h), _p(2, h), _p(3, h), _p(4, h), _p(10, h), _p(12, h)], 2),
+        Routine("stomp stomp", [_w(1, H), _g(27), _pause(h), _w(1, H), _g(27), _pause(h), _w(2, h)], 2),
+        Routine("big roar", [_p(5, h), _p(7, h), _p(9, h), _p(11, h), _pause(H * 2), _p(10, h), _p(12, h), _p(6, h), _p(8, h)], 3),
+        Routine("tail swing", [_w(1, H), _w(2, H), _w(1, H), _w(2, H)], 1),
+        Routine("chomp chomp", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 3),
+        Routine("sniff the air", [_p(1, H), _p(9, H), _pause(H), _w(1, h), _w(2, h), _p(10, H), _p(2, H)], 1),
+        Routine("thunder lizard", [_g(35), _pause(H), _g(27), _pause(H), _g(37)], 2),
+        Routine("claws out", [_p(5, h), _p(9, h), _p(7, h), _p(11, h), _pause(H), _p(10, h), _p(12, h), _p(6, h), _p(8, h)], 2),
+    ]
+    if floor:
+        r.append(Routine("lumber around", [_turn(3, H), _pause(h), _g(27), _turn(7, H)], 3, floor=True))
+    return r
+
+
+def silly_routines(h: float, floor: bool) -> list[Routine]:
+    """Fast, floppy and ridiculous (still never faster than the servo floor)."""
+    r = [
+        Routine("flail", [_p(1, h), _p(5, h), _p(3, h), _p(7, h), _p(2, h), _p(6, h), _p(4, h), _p(8, h)], 3),
+        Routine("jazz hands", [_p(1, h), _p(3, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h), _p(2, h), _p(4, h)], 3),
+        Routine("big shrug", [_p(5, h), _p(7, h), _p(9, h), _p(11, h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _p(10, h), _p(12, h), _p(6, h), _p(8, h)], 2),
+        Routine("wiggle wiggle", [_w(1, h), _w(2, h), _w(1, h), _w(2, h), _w(1, h), _w(2, h), _w(1, h), _w(2, h)], 2),
+        Routine("shimmy shake", [_p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(5, h), _p(6, h), _p(7, h), _p(8, h), _p(5, h), _p(7, h), _p(6, h), _p(8, h)], 3),
+        Routine("silly sway", [_g(31), _pause(h * 2), _g(37), _pause(h * 2), _g(33), _pause(h * 2), _g(35)], 1),
+        Routine("bow and pop", [_g(27), _pause(h), _p(1, h), _p(3, h), _p(2, h), _p(4, h), _g(27)], 2),
+        Routine("one arm up", [_p(3, h), _p(11, h), _p(12, h), _p(11, h), _p(12, h), _p(11, h), _p(4, h), _p(1, h), _p(9, h), _p(10, h), _p(9, h), _p(2, h)], 2),
+        Routine("sahur drum", [_p(9, h), _p(10, h), _p(11, h), _p(12, h), _p(9, h), _p(10, h), _p(11, h), _p(12, h), _p(9, h), _p(11, h), _p(10, h), _p(12, h)], 3),
+    ]
+    if floor:
+        r.append(Routine("dizzy spin", [_turn(3, h * 3), _pause(h), _turn(7, h * 3), _g(25)], 3, floor=True))
+    return r
+
+
+THEMES: dict[str, Theme] = {
+    "robot": Theme(
+        "robot", "stop-motion robot dance with a mechanical mouth",
+        faces=((FACE_THINK,), (FACE_TALK, FACE_THINK), (FACE_TALK, FACE_HAPPY)), face_period=3.0,
+    ),
+    "dinosaur": Theme(
+        "dinosaur", "stomping, roaring dinosaur",
+        faces=((FACE_SAD,), (FACE_SAD, FACE_HAPPY), (FACE_LAUGH, FACE_HAPPY)), face_period=4.0,
+    ),
+    "silly": Theme(
+        "silly", "super silly flailing",
+        faces=((FACE_HAPPY,), (FACE_LAUGH, FACE_HAPPY), (FACE_LAUGH, FACE_THINK)), face_period=2.5,
+    ),
+    "party": Theme(
+        "party", "general party dancing",
+        faces=((FACE_HAPPY,), (FACE_HAPPY, FACE_TALK), (FACE_LAUGH, FACE_HAPPY)), face_period=4.0,
+    ),
+}
+
+_THEME_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("robot", ("intergalactic", "robot", "roboto", "yoshimi", "machine", "android", "daft punk", "kraftwerk")),
+    ("dinosaur", ("dinosaur", "t rex", "t-rex", "tyrannosaurus", "jurassic", "rex", "dino")),
+    ("silly", ("tung", "sahur", "silly", "frog", "banana", "baby shark", "wiggle", "chicken")),
+)
+
+
+def theme_for(title: str) -> Theme:
+    t = (title or "").lower()
+    for name, words in _THEME_RULES:
+        if any(w in t for w in words):
+            return THEMES[name]
+    return THEMES["party"]
+
+
+def routines_for(theme: Theme, hold: float, floor: bool) -> list[Routine]:
+    base = {
+        "robot": robot_routines,
+        "dinosaur": dinosaur_routines,
+        "silly": silly_routines,
+    }.get(theme.name)
+    return base(hold, floor) if base else build_routines(hold, floor)
+
+
+def energy_bands(pcm: np.ndarray, sr: int, window: float = 2.0) -> np.ndarray:
+    """0 (quiet) / 1 (medium) / 2 (loud) per ``window`` seconds, from the song's loudness."""
+    n = int(sr * window)
+    if n <= 0 or len(pcm) < n:
+        return np.array([1])
+    frames = len(pcm) // n
+    x = pcm[: frames * n].astype(np.float32).reshape(frames, n)
+    rms = np.sqrt(np.mean(x * x, axis=1))
+    lo, hi = np.percentile(rms, 33), np.percentile(rms, 66)
+    bands = np.ones(frames, dtype=int)
+    bands[rms <= lo] = 0
+    bands[rms >= hi] = 2
+    return bands
